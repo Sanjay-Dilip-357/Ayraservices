@@ -593,21 +593,42 @@ function addAliasField(p) {
     aliasCounters[p]++;
     var c = document.getElementById(p + '_alias_container');
     var n = aliasCounters[p];
-    var d = document.createElement('div');
-    d.className = 'alias-item';
-    d.id = p + '_alias_item_' + n;
-    d.innerHTML = '<span class="alias-label">Alias ' + n + '</span>' +
-        '<input type="text" class="form-control uppercase-input alias-input" name="alias_names[]" placeholder="Alias" ' +
-        'oninput="this.value=this.value.toUpperCase();updateAliasPreview(\'' + p + '\');">' +
-        '<button type="button" class="delete-alias-btn" onclick="removeAliasField(\'' + p + '\',' + n + ')">' +
-        '<i class="bi bi-trash3"></i></button>';
-    c.appendChild(d);
+    
+    // Create wrapper div
+    var wrapper = document.createElement('div');
+    wrapper.className = 'alias-field-wrapper';
+    wrapper.id = p + '_alias_item_' + n;
+    
+    // Create input
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'form-control uppercase-input alias-input';
+    input.name = 'alias_names[]';
+    input.placeholder = 'Alias ' + n;
+    input.setAttribute('oninput', "this.value=this.value.toUpperCase();updateAliasPreview('" + p + "');");
+    
+    // Create delete button
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'remove-alias-btn';
+    deleteBtn.title = 'Remove Alias';
+    deleteBtn.setAttribute('onclick', "removeAliasField('" + p + "'," + n + ")");
+    deleteBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+    
+    // Append input and button to wrapper
+    wrapper.appendChild(input);
+    wrapper.appendChild(deleteBtn);
+    
+    // Add wrapper to container
+    c.appendChild(wrapper);
+    
+    // Update counter and preview
     updateAliasCounter(p);
     updateAliasPreview(p);
-
-    var inp = d.querySelector('input');
-    if (inp) inp.focus();
-
+    
+    // Focus on the new input
+    input.focus();
+    
     showToast('success', 'Added', 'Alias ' + n + ' added');
 }
 
@@ -1437,43 +1458,56 @@ function saveDraft() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
     
-    // Collect data from preview
+    // Start with the FULL previewData replacements (includes hidden fields like WIFE_OF, SPOUSE_NAME1, HE_SHE)
     var replacements = {};
     
-    // Get all preview values from table
+    // First, get all values from the original previewData (includes hidden fields)
+    if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
+        // Copy ALL fields including empty strings
+        for (var key in previewData.replacements) {
+            if (previewData.replacements.hasOwnProperty(key)) {
+                var val = previewData.replacements[key];
+                // Include even empty strings - they're important for WIFE_OF, SPOUSE_NAME1
+                replacements[key] = (val !== null && val !== undefined) ? val : '';
+            }
+        }
+    }
+    
+    // Then, override with any edited values from the preview table
     var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
     previewCells.forEach(function(cell) {
         var field = cell.dataset.field;
-        var value = cell.textContent ? cell.textContent.trim() : '';
-        if (field && value) {
+        if (field) {
+            var value = cell.textContent ? cell.textContent.trim() : '';
+            // Override with table value (user might have edited it)
             replacements[field] = value;
         }
     });
     
-    // If no preview data from cells, try global previewData
-    if (Object.keys(replacements).length === 0 && typeof previewData !== 'undefined' && previewData && previewData.replacements) {
-        replacements = previewData.replacements;
-    }
-    
-    // Build draft data
-    var draftData = {
-        template_type: selectedTemplate,
-        folder_type: currentFolderType,
-        replacements: replacements,
-        preview_data: typeof previewData !== 'undefined' ? previewData : {},
-        status: 'draft'
-    };
-    
     // Validate we have data
-    if (!draftData.template_type) {
-        showToast('error', 'Error', 'No template selected');
+    if (Object.keys(replacements).length === 0) {
+        showToast('error', 'Error', 'No data to save. Please fill out the form first.');
         btn.disabled = false;
         btn.innerHTML = originalHtml;
         return;
     }
     
-    if (Object.keys(replacements).length === 0) {
-        showToast('error', 'Error', 'No data to save. Please fill out the form first.');
+    // Build draft data - include the full preview_data
+    var draftData = {
+        template_type: selectedTemplate,
+        folder_type: currentFolderType,
+        replacements: replacements,
+        preview_data: typeof previewData !== 'undefined' ? previewData : {
+            template_type: selectedTemplate,
+            folder_type: currentFolderType,
+            replacements: replacements
+        },
+        status: 'draft'
+    };
+    
+    // Validate template type
+    if (!draftData.template_type) {
+        showToast('error', 'Error', 'No template selected');
         btn.disabled = false;
         btn.innerHTML = originalHtml;
         return;
@@ -1493,12 +1527,10 @@ function saveDraft() {
             // Show draft saved section
             var draftSavedSection = document.getElementById('draftSavedSection');
             if (draftSavedSection) {
-                // Reset to draft saved state
                 draftSavedSection.querySelector('h4').textContent = 'Draft Saved!';
-                draftSavedSection.querySelector('h4').classList.remove('text-success');
-                draftSavedSection.querySelector('h4').classList.add('text-primary');
-                draftSavedSection.querySelector('i').classList.remove('bi-check-circle-fill', 'text-success');
-                draftSavedSection.querySelector('i').classList.add('bi-journal-check', 'text-primary');
+                draftSavedSection.querySelector('h4').style.color = '';
+                draftSavedSection.querySelector('i').className = 'bi bi-journal-check';
+                draftSavedSection.querySelector('i').style.color = '';
                 draftSavedSection.querySelector('p').textContent = 'Your document has been saved as a draft. You can continue editing it later from the dashboard.';
                 
                 draftSavedSection.classList.remove('d-none');
@@ -1506,6 +1538,10 @@ function saveDraft() {
             }
             
             showToast('success', 'Draft Saved', 'Your document has been saved successfully!');
+            
+            // Clear phones
+            clearSessionPhones();
+            currentFormPhones = {};
         } else {
             showToast('error', 'Error', data.message || 'Failed to save draft');
         }
@@ -1533,45 +1569,60 @@ function submitForApproval() {
     if (spinner) spinner.classList.remove('d-none');
     if (icon) icon.classList.add('d-none');
     
-    // Collect data from preview
+    // Start with the FULL previewData replacements (includes hidden fields like WIFE_OF, SPOUSE_NAME1, HE_SHE)
     var replacements = {};
     
-    // Get all preview values from table
+    // First, get all values from the original previewData (includes hidden fields)
+    if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
+        // Copy ALL fields including empty strings
+        for (var key in previewData.replacements) {
+            if (previewData.replacements.hasOwnProperty(key)) {
+                var val = previewData.replacements[key];
+                // Include even empty strings - they're important for WIFE_OF, SPOUSE_NAME1
+                replacements[key] = (val !== null && val !== undefined) ? val : '';
+            }
+        }
+    }
+    
+    // Then, override with any edited values from the preview table
     var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
     previewCells.forEach(function(cell) {
         var field = cell.dataset.field;
-        var value = cell.textContent ? cell.textContent.trim() : '';
-        if (field && value) {
+        if (field) {
+            var value = cell.textContent ? cell.textContent.trim() : '';
+            // Override with table value (user might have edited it)
             replacements[field] = value;
         }
     });
     
-    // If no preview data from cells, try global previewData
-    if (Object.keys(replacements).length === 0 && typeof previewData !== 'undefined' && previewData && previewData.replacements) {
-        replacements = previewData.replacements;
+    // Validate we have data
+    if (Object.keys(replacements).length === 0) {
+        showToast('error', 'Error', 'No data to submit. Please fill out the form first.');
+        btn.disabled = false;
+        if (spinner) spinner.classList.add('d-none');
+        if (icon) icon.classList.remove('d-none');
+        return;
     }
     
-    // Build draft data
+    // Build draft data - include the full preview_data
     var draftData = {
         template_type: selectedTemplate,
         folder_type: currentFolderType,
         replacements: replacements,
-        preview_data: typeof previewData !== 'undefined' ? previewData : {},
+        preview_data: typeof previewData !== 'undefined' ? previewData : {
+            template_type: selectedTemplate,
+            folder_type: currentFolderType,
+            replacements: replacements
+        },
         status: 'draft'
     };
     
-    // Validate we have data
+    // Validate template type
     if (!draftData.template_type) {
         showToast('error', 'Error', 'No template selected');
         btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        return;
-    }
-    
-    if (Object.keys(replacements).length === 0) {
-        showToast('error', 'Error', 'No data to submit. Please fill out the form first.');
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
+        if (spinner) spinner.classList.add('d-none');
+        if (icon) icon.classList.remove('d-none');
         return;
     }
     
