@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - AYRA Services</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <style>
+        .admin-navbar {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+        }
+
+        .admin-badge {
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stats-card.admin {
+            border-left: 4px solid #e94560;
+        }
+
+        .user-status-active {
+            color: #198754;
+        }
+
+        .user-status-inactive {
+            color: #dc3545;
+        }
+
+        .progress-bar-drafts {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .progress-bar-pending {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .progress-bar-approved {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .progress-bar-generated {
+            background: linear-gradient(135deg, #002bec 0%, #764ba2 100%);
+        }
+
+        .edit-doc-modal .modal-dialog {
+            max-width: 900px;
+        }
+
+        .edit-doc-modal .form-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .edit-doc-modal .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .edit-doc-modal .section-icon {
+            width: 35px;
+            height: 35px;
+            border-radius: 8px;
+            background: var(--primary-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            margin-right: 0.75rem;
+        }
+
+        .edit-doc-modal .section-title {
+            font-weight: 600;
+            margin: 0;
+            font-size: 1rem;
+        }
+
+        .dual-relation-card {
+            border: 2px solid #e94560;
+            border-radius: 10px;
+            margin-top: 0.5rem;
+        }
+
+        .dual-relation-card .card-header {
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            color: white;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+        }
+
+        .uppercase-input {
+            text-transform: uppercase;
+        }
+
+        .required-asterisk {
+            color: #dc3545;
+        }
+
+        /* ==================== ACTION BUTTONS ==================== */
+        .action-buttons-cell {
+            white-space: nowrap;
+            min-width: 280px;
+        }
+
+        .action-buttons-cell .btn {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            margin: 0 2px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .action-buttons-cell .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .btn-view {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-view:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #63408b 100%);
+            color: white;
+        }
+
+        .btn-edit {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background: linear-gradient(135deg, #df82ea 0%, #e44659 100%);
+            color: white;
+        }
+
+        .btn-approve {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-approve:hover {
+            background: linear-gradient(135deg, #0e7d72 0%, #2dd464 100%);
+            color: white;
+        }
+
+        .btn-generate {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-generate:hover {
+            background: linear-gradient(135deg, #3e9ae5 0%, #00d9e5 100%);
+            color: white;
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-download:hover {
+            background: linear-gradient(135deg, #e95e87 0%, #e5c827 100%);
+            color: white;
+        }
+
+        .btn-delete {
+            background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background: linear-gradient(135deg, #e65555 0%, #b02424 100%);
+            color: white;
+        }
+
+        /* ==================== VIEW DOCUMENT MODAL ==================== */
+        .view-doc-section {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+            border-left: 4px solid #667eea;
+        }
+
+        .view-doc-section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .view-doc-section-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.25rem;
+            margin-right: 1rem;
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .view-doc-section-title {
+            font-weight: 700;
+            margin: 0;
+            font-size: 1.1rem;
+            color: #2d3748;
+        }
+
+        .view-doc-field {
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .view-doc-field:hover {
+            background: #e3f2fd;
+            transform: translateX(4px);
+        }
+
+        .view-doc-label {
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
+            display: block;
+        }
+
+        .view-doc-value {
+            color: #1a202c;
+            font-size: 1rem;
+            word-break: break-word;
+        }
+
+        .view-doc-badge-container {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+        }
+
+        .view-doc-empty {
+            text-align: center;
+            padding: 2rem;
+            color: #a0aec0;
+        }
+
+        /* Color variations for different sections */
+        .view-doc-section.personal { border-left-color: #667eea; }
+        .view-doc-section.personal .view-doc-section-icon {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .view-doc-section.contact { border-left-color: #48bb78; }
+        .view-doc-section.contact .view-doc-section-icon {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+        }
+
+        .view-doc-section.witness { border-left-color: #ed8936; }
+        .view-doc-section.witness .view-doc-section-icon {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+        }
+
+        .view-doc-section.dates { border-left-color: #4299e1; }
+        .view-doc-section.dates .view-doc-section-icon {
+            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+        }
+
+        .view-doc-section.child { border-left-color: #9f7aea; }
+        .view-doc-section.child .view-doc-section-icon {
+            background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+        }
+
+        /* ==================== CD DOCUMENT PREVIEW ==================== */
+        .cd-document-section {
+            background: #fffbeb;
+            border: 2px solid #f59e0b;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .cd-document-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 2px solid #fcd34d;
+        }
+
+        .cd-document-icon {
+            width: 45px;
+            height: 45px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.25rem;
+            margin-right: 1rem;
+            box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+        }
+
+        .cd-document-title {
+            font-weight: 700;
+            margin: 0;
+            font-size: 1.1rem;
+            color: #92400e;
+        }
+
+        .cd-document-content {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Times New Roman', serif;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .cd-document-content .cd-paragraph {
+            margin-bottom: 0.75rem;
+            text-align: justify;
+        }
+
+        .cd-document-content .cd-heading {
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .cd-document-content .cd-table {
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        .cd-loading {
+            text-align: center;
+            padding: 2rem;
+            color: #6b7280;
+        }
+
+        .cd-loading i {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* ==================== RESPONSIVE ==================== */
+        @media (max-width: 768px) {
+            .action-buttons-cell {
+                min-width: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+            .action-buttons-cell .btn {
+                flex: 1 1 calc(50% - 0.25rem);
+                margin: 0;
+                font-size: 0.75rem;
+                padding: 0.5rem;
+            }
+            .welcome-title {
+                font-size: 1.25rem;
+            }
+            .stats-value {
+                font-size: 1.75rem;
+            }
+            .dashboard-tabs .nav-link {
+                padding: 0.5rem 0.75rem;
+                font-size: 0.85rem;
+            }
+            .tab-content-card {
+                padding: 1rem;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .action-buttons-cell .btn {
+                flex: 1 1 100%;
+            }
+            .stats-card {
+                padding: 1rem;
+            }
+            .stats-icon {
+                width: 45px;
+                height: 45px;
+                font-size: 1.2rem;
+            }
+        }
+
+        /* ==================== COPY BUTTON FOR CD CONTENT ==================== */
+.cd-copy-btn-container {
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+
+.cd-copy-btn {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border: none;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+}
+
+.cd-copy-btn:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+}
+
+.cd-copy-btn i {
+    margin-right: 0.5rem;
+}
+
+.cd-copy-btn.copied {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.cd-copy-btn.copied i::before {
+    content: "\f26b"; /* bi-check-circle-fill */
+}
+    </style>
+</head>
+
+<body>
+    <!-- Admin Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark admin-navbar">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="/">
+                <div class="brand-logo me-2">
+                    <i class="bi bi-shield-lock-fill"></i>
+                </div>
+                <div>
+                    <span class="brand-name">AYRA</span>
+                    <span class="text-light ms-2">Admin</span>
+                </div>
+            </a>
+
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto me-3">
+                    <li class="nav-item">
+                        <span class="admin-badge">Admin Portal</span>
+                    </li>
+                </ul>
+
+                <div class="dropdown user-dropdown">
+                    <button class="dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <div class="user-avatar" style="background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);">
+                            {{ admin_name[0].upper() if admin_name else 'A' }}
+                        </div>
+                        <span class="d-none d-md-inline">{{ admin_name or 'Admin' }}</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li class="dropdown-header">
+                            <strong>{{ admin_name }}</strong>
+                            <br><small class="text-muted">Administrator</small>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="#" onclick="logout()">
+                            <i class="bi bi-box-arrow-right me-2"></i>Logout
+                        </a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="container py-4">
+            <!-- Welcome Section -->
+            <div class="welcome-section mb-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h1 class="welcome-title">Admin Dashboard 🛡️</h1>
+                        <p class="welcome-subtitle mb-0">Monitor users and document processing</p>
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <span class="text-muted" id="currentDateTime"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Overall Stats Cards -->
+            <div class="row g-4 mb-4">
+                <div class="col-md-3 col-sm-6">
+                    <div class="stats-card admin">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);">
+                            <i class="bi bi-people"></i>
+                        </div>
+                        <div class="stats-value" id="totalUsers">0</div>
+                        <div class="stats-label">Total Users</div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                            <i class="bi bi-person-check"></i>
+                        </div>
+                        <div class="stats-value" id="activeUsers">0</div>
+                        <div class="stats-label">Active Users</div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <i class="bi bi-files"></i>
+                        </div>
+                        <div class="stats-value" id="totalDocuments">0</div>
+                        <div class="stats-label">Total Documents</div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="stats-card">
+                        <div class="stats-icon" style="background: linear-gradient(135deg, #002bec 0%, #764ba2 100%);">
+                            <i class="bi bi-file-earmark-check"></i>
+                        </div>
+                        <div class="stats-value" id="generatedDocs">0</div>
+                        <div class="stats-label">Generated</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Tabs -->
+            <div class="dashboard-tabs-container">
+                <ul class="nav nav-tabs dashboard-tabs" id="adminTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="admin-overview-tab" data-bs-toggle="tab"
+                            data-bs-target="#admin-overview" type="button" role="tab">
+                            <i class="bi bi-graph-up me-2"></i>Overview
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="admin-users-tab" data-bs-toggle="tab" data-bs-target="#admin-users"
+                            type="button" role="tab">
+                            <i class="bi bi-people me-2"></i>Users
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="admin-documents-tab" data-bs-toggle="tab"
+                            data-bs-target="#admin-documents" type="button" role="tab">
+                            <i class="bi bi-files me-2"></i>Documents
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="adminTabsContent">
+                    <!-- Overview Tab -->
+                    <div class="tab-pane fade show active" id="admin-overview" role="tabpanel">
+                        <div class="tab-content-card">
+                            <h5 class="section-title mb-4">
+                                <i class="bi bi-bar-chart-fill text-primary me-2"></i>Document Statistics
+                            </h5>
+
+                            <div class="row g-4 mb-4">
+                                <div class="col-md-3 col-6">
+                                    <div class="mini-stat-card">
+                                        <div class="d-flex align-items-center">
+                                            <div class="mini-stat-icon drafts">
+                                                <i class="bi bi-file-earmark-text"></i>
+                                            </div>
+                                            <div class="ms-3">
+                                                <div class="mini-stat-value" id="overviewDrafts">0</div>
+                                                <div class="mini-stat-label">Drafts</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div class="mini-stat-card">
+                                        <div class="d-flex align-items-center">
+                                            <div class="mini-stat-icon pending">
+                                                <i class="bi bi-hourglass-split"></i>
+                                            </div>
+                                            <div class="ms-3">
+                                                <div class="mini-stat-value" id="overviewPending">0</div>
+                                                <div class="mini-stat-label">Pending</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div class="mini-stat-card">
+                                        <div class="d-flex align-items-center">
+                                            <div class="mini-stat-icon approved">
+                                                <i class="bi bi-check-circle"></i>
+                                            </div>
+                                            <div class="ms-3">
+                                                <div class="mini-stat-value" id="overviewApproved">0</div>
+                                                <div class="mini-stat-label">Approved</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div class="mini-stat-card">
+                                        <div class="d-flex align-items-center">
+                                            <div class="mini-stat-icon generated">
+                                                <i class="bi bi-file-earmark-check"></i>
+                                            </div>
+                                            <div class="ms-3">
+                                                <div class="mini-stat-value" id="overviewGenerated">0</div>
+                                                <div class="mini-stat-label">Generated</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h5 class="section-title mb-4 mt-5">
+                                <i class="bi bi-people-fill text-info me-2"></i>User Activity Summary
+                            </h5>
+                            <div class="table-responsive">
+                                <table class="table data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Email</th>
+                                            <th>Drafts</th>
+                                            <th>Pending</th>
+                                            <th>Approved</th>
+                                            <th>Generated</th>
+                                            <th>Last Login</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="userActivityBody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Users Tab -->
+                    <div class="tab-pane fade" id="admin-users" role="tabpanel">
+                        <div class="tab-content-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                                <h5 class="section-title mb-0">
+                                    <i class="bi bi-people-fill text-primary me-2"></i>User Management
+                                </h5>
+                                <button type="button" class="btn btn-primary" onclick="showAddUserModal()">
+                                    <i class="bi bi-person-plus me-1"></i>Add User
+                                </button>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table data-table" id="usersTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Phone</th>
+                                            <th>Status</th>
+                                            <th>Created</th>
+                                            <th>Last Login</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="usersTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="empty-state d-none" id="usersEmptyState">
+                                <i class="bi bi-people"></i>
+                                <h5>No users found</h5>
+                                <p>Add users to get started</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Documents Tab -->
+                    <div class="tab-pane fade" id="admin-documents" role="tabpanel">
+                        <div class="tab-content-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                                <h5 class="section-title mb-0">
+                                    <i class="bi bi-files text-primary me-2"></i>All Documents
+                                </h5>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button type="button" class="btn btn-success btn-sm" id="bulkDownloadBtn"
+                                        onclick="downloadSelectedDocs()" disabled>
+                                        <i class="bi bi-download me-1"></i>Download (<span id="selectedCount">0</span>)
+                                    </button>
+                                    <div class="btn-group flex-wrap" role="group">
+                                        <button type="button" class="btn btn-outline-primary btn-sm active"
+                                            onclick="filterAdminDocs('all')">All</button>
+                                        <button type="button" class="btn btn-outline-warning btn-sm"
+                                            onclick="filterAdminDocs('draft')">Drafts</button>
+                                        <button type="button" class="btn btn-outline-info btn-sm"
+                                            onclick="filterAdminDocs('pending')">Pending</button>
+                                        <button type="button" class="btn btn-outline-success btn-sm"
+                                            onclick="filterAdminDocs('approved')">Approved</button>
+                                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                            onclick="filterAdminDocs('generated')">Generated</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table data-table" id="adminDocsTable">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 40px;">
+                                                <input type="checkbox" class="form-check-input" id="selectAllDocs"
+                                                    onchange="toggleSelectAllDocs()">
+                                            </th>
+                                            <th>User</th>
+                                            <th>Old Name</th>
+                                            <th>Template</th>
+                                            <th>Status</th>
+                                            <th>Modified</th>
+                                            <th style="width: 280px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="adminDocsTableBody">
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="empty-state d-none" id="adminDocsEmptyState">
+                                <i class="bi bi-files"></i>
+                                <h5>No documents found</h5>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <span class="fw-bold"><i class="bi bi-shield-lock-fill me-2"></i>AYRA Services Admin</span>
+            <span class="ms-3 small">&copy; 2026 - Administration Portal</span>
+        </div>
+    </footer>
+
+    <!-- Add User Modal -->
+    <div class="modal fade" id="addUserModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Add New User</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addUserForm">
+                        <div class="mb-3">
+                            <label class="form-label">Full Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="newUserName" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email (Username) <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="newUserEmail" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Phone Number</label>
+                            <input type="tel" class="form-control" id="newUserPhone" maxlength="10">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="newUserPassword" value="Ayraservices@123"
+                                    placeholder="Enter password">
+                                <button type="button" class="btn btn-outline-secondary"
+                                    onclick="generateRandomPassword()" title="Generate random password">
+                                    <i class="bi bi-shuffle"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary"
+                                    onclick="resetToDefaultPassword()" title="Reset to default">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+                            </div>
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle me-1"></i>
+                                You can type a custom password, generate random, or use default
+                            </small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="createUser()">
+                        <i class="bi bi-check-lg me-1"></i>Create User
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal fade" id="editUserModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit User</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editUserId">
+                    <div class="mb-3">
+                        <label class="form-label">Full Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editUserName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        <input type="email" class="form-control" id="editUserEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone Number</label>
+                        <input type="tel" class="form-control" id="editUserPhone" maxlength="10">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Password <small class="text-muted">(leave blank to keep current)</small></label>
+                        <input type="password" class="form-control" id="editUserPassword" placeholder="Enter new password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="updateUser()">
+                        <i class="bi bi-check-lg me-1"></i>Update
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Document Modal - Full Form with CD Preview -->
+    <div class="modal fade edit-doc-modal" id="editDocModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil-square me-2"></i>Edit Document
+                        <span class="badge bg-secondary ms-2" id="editDocTemplateBadge"></span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="editDocBody">
+                    <!-- Dynamic form will be loaded here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="approveAndSaveDocument()">
+                        <i class="bi bi-check-circle me-1"></i>Approve & Save
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="saveDocumentChanges()">
+                        <i class="bi bi-check-lg me-1"></i>Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Document Modal with CD Preview -->
+    <div class="modal fade" id="viewDocModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-eye me-2"></i>View Document</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="viewDocBody">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generate Preview Modal with CD Document -->
+    <div class="modal fade" id="generatePreviewModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                    <h5 class="modal-title text-white">
+                        <i class="bi bi-file-earmark-text me-2"></i>Document Preview - CD Content
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="generatePreviewBody">
+                    <!-- CD Document preview will be loaded here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning" onclick="saveDraftFromPreview()">
+                        <i class="bi bi-journal-plus me-1"></i>Save as Draft
+                    </button>
+                    <button type="button" class="btn btn-success" id="confirmGenerateBtn" onclick="confirmGenerate()">
+                        <i class="bi bi-download me-1"></i>Generate & Download
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <i id="toastIcon" class="bi me-2"></i>
+                <strong id="toastTitle" class="me-auto"></strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div id="toastBody" class="toast-body"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}"></script>
+</body>
+
+</html>

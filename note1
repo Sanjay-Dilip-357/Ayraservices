@@ -1,0 +1,100 @@
+# theme 1
+--primary-white: #ffffff;
+--gray-100: #f8f9fa;
+--gray-200: #e9ecef;
+--gray-300: #dee2e6;
+--gray-400: #ced4da;
+--gray-500: #adb5bd;
+--gray-600: #6c757d;
+--gray-700: #495057;
+--gray-800: #343a40;
+--gray-900: #212529;
+--primary-black: #0d291a;
+
+
+theme 2
+--primary-black: #0f1720;
+--primary-white: #f5f5f5;
+
+--gray-100: #e6e6fa;
+--gray-200: #cfcfe8;
+--gray-300: #a8a8c8;
+--gray-400: #7f7fa6;
+--gray-500: #5c5c85;
+--gray-600: #444466;
+--gray-700: #2f2f4d;
+--gray-800: #1c1c33;
+--gray-900: #0d0d1a;
+
+
+theme 3
+--primary-black: #1a1a1a;
+--primary-white: #f2f2f2;
+
+--gray-100: #f0ede6;
+--gray-200: #ddd7cc;
+--gray-300: #c9c2b5;
+--gray-400: #b4ab9d;
+--gray-500: #9e9486;
+--gray-600: #7f7668;
+--gray-700: #625a4d;
+--gray-800: #474035;
+--gray-900: #2e2a22;
+
+theme 4
+--primary-black: #001a12;
+--primary-white: #e6ffe6;
+
+--gray-100: #d9ffe0;
+--gray-200: #bff2cc;
+--gray-300: #99d9aa;
+--gray-400: #73bf88;
+--gray-500: #4da666;
+--gray-600: #33804d;
+--gray-700: #24663d;
+--gray-800: #164d2c;
+--gray-900: #0b331d;
+
+theme 5
+--primary-black: #3a2e2a;   /* soft brown shadow */
+--primary-white: #fff4e6;   /* warm morning glow */
+
+--gray-100: #fff1e0;
+--gray-200: #ffe0c2;
+--gray-300: #ffcca3;
+--gray-400: #ffb380;
+--gray-500: #e69563;
+--gray-600: #bf744d;
+--gray-700: #99563a;
+--gray-800: #66392a;
+--gray-900: #40241b;
+
+
+
+--primary-black: #2a1a1a;
+--primary-white: #fff0eb;
+
+--gray-100: #ffe5d9;
+--gray-200: #ffcabd;
+--gray-300: #ffadad;
+--gray-400: #ff8a80;
+--gray-500: #e06666;
+--gray-600: #b34d4d;
+--gray-700: #803737;
+--gray-800: #4d2222;
+--gray-900: #2a1414;
+
+
+
+--primary-black: #1c1b2f;
+--primary-white: #fdf3ff;
+
+--gray-100: #f3e8ff;
+--gray-200: #e0cfff;
+--gray-300: #c2a8ff;
+--gray-400: #9f7aea;
+--gray-500: #7f5bbd;
+--gray-600: #64479a;
+--gray-700: #4b3573;
+--gray-800: #32234d;
+--gray-900: #1f1533;

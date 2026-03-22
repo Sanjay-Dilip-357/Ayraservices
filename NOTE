@@ -1,0 +1,116 @@
+MAJOR:
+OLD_NAME
+NEW_NAME
+FATHER-SPOUSE_NAME
+UPDATE_ADDRESS
+UPDATE_RELATION
+GENDER_UPDATE
+CAST_UPDATE
+PHONE_UPDATE
+EMAIL_UPDATE
+NUM_DATE
+ALPHA_DATE
+WITNESS_NAME1
+WITNESS_ADDRESS1
+WITNESS_PHONE1
+WITNESS_NAME2
+WITNESS_ADDRESS2
+
+
+MINOR:
+
+UPDATE_AGE
+FATHER-MOTHER_NAME
+SON-DAUGHTER
+CHILD_DOB
+BIRTH_PLACE
+OLD_NAME
+NEW_NAME
+FATHER-SPOUSE_NAME
+UPDATE_ADDRESS
+UPDATE_RELATION
+GENDER_UPDATE
+CAST_UPDATE
+PHONE_UPDATE
+EMAIL_UPDATE
+NUM_DATE
+ALPHA_DATE
+WITNESS_NAME1
+WITNESS_ADDRESS1
+WITNESS_PHONE1
+WITNESS_NAME2
+WITNESS_ADDRESS2
+HE_SHE
+
+Religion:
+
+OLD_NAME
+NEW_NAME
+UPDATE_RELATION
+FATHER-SPOUSE_NAME
+UPDATE_ADDRESS
+ALPHA_DATE
+GENDER_UPDATE
+CAST_UPDATE
+PHONE_UPDATE
+EMAIL_UPDATE
+NUM_DATE
+WITNESS_NAME1
+WITNESS_ADDRESS1
+WITNESS_PHONE1
+WITNESS_NAME2
+WITNESS_ADDRESS2
+WITNESS_PHONE2
+
+
+UNMARID:
+
+OLD_NAME
+NEW_NAME
+UPDATE_RELATION
+FATHER-SPOUSE_NAME
+WIFE_OF
+SPOUSE_NAME1
+UPDATE_ADDRESS
+NUM_DATE
+ALPHA_DATE
+GENDER_UPDATE
+CAST_UPDATE
+PHONE_UPDATE
+EMAIL_UPDATE
+WITNESS_NAME1
+WITNESS_ADDRESS1
+WITNESS_PHONE1
+WITNESS_NAME2
+WITNESS_ADDRESS2
+WITNESS_PHONE2
+
+
+
+
+create a login page which contains a username field, password field with eye togle and a forgot password, 
+to enter into the Name Changing Services one must be logged in then only they can access that page to do the task.
+after entering all the details and when its in Document Preview ther it contains cancel, edit, generate.
+add one more button named draft. create a draft tab which are pending for approval,  draft the elements in a table way,heading are: old_name, template_name, date_modified/time, action, in action it should contain approve,edit,delete. when i click on edit i should be able to edit those values and save it and then i'm able to approve it
+when the docx is approved it should go to the generate tab the heading will be like old name, template, approved date/time, check box and a download option, check box is to select and download the docx for multiple files 
+
+and a dashboard (user) where it shows how many files are in draf, pending for approval,approved filed, generated files
+
+
+create create a dashboard for admin: where he can monitor all the users and their work progress like how many files are in draf, pending for approval,approved filed, generated files, and modified date, and also create a users tab where he can check how many users are there and a add user button to add users with the details like name, phone number, email(username), password. keep common password like "Ayraservices@123".
+
+
+create a seperate code to generate admin logins where it only contains name, email(username), password "Ayraservices@admin"
+
+
+postgresql://ayraadmin:mDnABigMbF9lexMycs3Z5ZOmVUmn88Y2@dpg-d6r873n5r7bs738s6k80-a/ayraservices
+
+
+
+
+
+1. in major template it should display the CD.docx updated content but its showing the CD Certificate content, WIFE_OF SPOUSE_NAME1 should be empty if not given in the webpage(apply to all template), but it is displaying the key workd which is not required.
+
+2. in minor template i provided D/o & W/o value but its taking only D/o value, for minor template it should take the Father/Mother Name as the file name to save the document
+
+and while using phone_numbers.csv once the numbers are used in any templates it should not be repeated until all the numbers are used in that csv. basically a template takes 3 different numbers 1 user naumber and 2 other witness numbers

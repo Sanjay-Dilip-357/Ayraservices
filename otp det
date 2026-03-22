@@ -1,0 +1,10 @@
+send url : https://kspapp.ksp.gov.in/ksp/api/traffic-challan/getotp
+payload: mobileNumber=9876543214
+
+verify url: https://kspapp.ksp.gov.in/ksp/api/traffic-challan/verify-otp
+payload :mobileNumber: 9876543214, otp: 12345
+
+
+Status Code: 400 Bad Request
+
+Status Code: 200 OK
