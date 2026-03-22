@@ -1912,34 +1912,45 @@ async function approveAndSaveDocument() {
 }
 
 function collectFormData() {
-    const updatedReplacements = {};
+    // Start with a copy of existing replacements (preserves hidden fields)
+    var updatedReplacements = {};
+    
+    if (currentEditDoc && currentEditDoc.replacements) {
+        for (var key in currentEditDoc.replacements) {
+            if (currentEditDoc.replacements.hasOwnProperty(key)) {
+                var val = currentEditDoc.replacements[key];
+                // Include even empty strings
+                updatedReplacements[key] = (val !== null && val !== undefined) ? val : '';
+            }
+        }
+    }
 
-    // Collect all inputs with data-key attribute
-    document.querySelectorAll('#editDocBody input[data-key], #editDocBody select[data-key]').forEach(input => {
-        const key = input.dataset.key;
-        let value = input.value.trim();
+    // Collect all inputs with data-key attribute (override with form values)
+    document.querySelectorAll('#editDocBody input[data-key], #editDocBody select[data-key]').forEach(function(input) {
+        var key = input.dataset.key;
+        var value = input.value.trim();
 
         if (input.classList.contains('uppercase-input')) {
             value = value.toUpperCase();
         }
 
-        // Store all values including empty strings (important for WIFE_OF, SPOUSE_NAME1)
+        // Store all values including empty strings
         updatedReplacements[key] = value;
     });
 
     // Handle relation field - CRITICAL for WIFE_OF and SPOUSE_NAME1
-    const relationSelect = document.getElementById('edit_relation');
+    var relationSelect = document.getElementById('edit_relation');
     if (relationSelect) {
-        const relationValue = relationSelect.value;
-        const relationMap = { 's': 'S/o', 'd': 'D/o', 'w': 'W/o', 'd/w': 'D/o' };
+        var relationValue = relationSelect.value;
+        var relationMap = { 's': 'S/o', 'd': 'D/o', 'w': 'W/o', 'd/w': 'D/o' };
         updatedReplacements['UPDATE_RELATION'] = relationMap[relationValue] || '';
 
         if (relationValue === 'd/w') {
             // D/o & W/o selected - include both values
             updatedReplacements['WIFE_OF'] = ' W/o ';
             
-            const fatherNameInput = document.getElementById('edit_FATHER_NAME');
-            const spouseNameInput = document.getElementById('edit_SPOUSE_NAME1');
+            var fatherNameInput = document.getElementById('edit_FATHER_NAME');
+            var spouseNameInput = document.getElementById('edit_SPOUSE_NAME1');
             
             if (fatherNameInput) {
                 updatedReplacements['FATHER-SPOUSE_NAME'] = fatherNameInput.value.toUpperCase().trim();
@@ -1953,7 +1964,7 @@ function collectFormData() {
             updatedReplacements['SPOUSE_NAME1'] = '';
             
             // For normal relation, use the normal field
-            const normalField = document.getElementById('edit_FATHER_SPOUSE_NAME');
+            var normalField = document.getElementById('edit_FATHER_SPOUSE_NAME');
             if (normalField) {
                 updatedReplacements['FATHER-SPOUSE_NAME'] = normalField.value.toUpperCase().trim();
             }
@@ -1961,24 +1972,24 @@ function collectFormData() {
     }
 
     // Ensure HE_SHE is properly set
-    let heSheValue = '';
-    const heSheInput = document.getElementById('edit_HE_SHE');
+    var heSheValue = '';
+    var heSheInput = document.getElementById('edit_HE_SHE');
     
     if (heSheInput && heSheInput.value) {
         heSheValue = heSheInput.value.toLowerCase();
     } else {
         // Fallback: determine from gender or son/daughter
-        const genderSelect = document.getElementById('edit_GENDER_UPDATE');
-        const sonDaughterSelect = document.getElementById('edit_SON_DAUGHTER');
+        var genderSelect = document.getElementById('edit_GENDER_UPDATE');
+        var sonDaughterSelect = document.getElementById('edit_SON_DAUGHTER');
         
         if (sonDaughterSelect && sonDaughterSelect.value) {
             heSheValue = sonDaughterSelect.value.toLowerCase() === 'son' ? 'he' : 'she';
         } else if (genderSelect && genderSelect.value) {
-            const genderValue = genderSelect.value.toUpperCase();
+            var genderValue = genderSelect.value.toUpperCase();
             heSheValue = genderValue === 'MALE' ? 'he' : 
                         genderValue === 'FEMALE' ? 'she' : 'he/she';
         } else {
-            heSheValue = 'he/she'; // Default fallback
+            heSheValue = 'he/she';
         }
     }
     
