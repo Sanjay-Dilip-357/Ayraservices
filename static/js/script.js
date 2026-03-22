@@ -1075,26 +1075,68 @@ function validateForm() {
     }
 
     // Phone validation with duplicate check
+    // ONLY validate phones in ACTIVE template section and common sections
     var phoneValues = [];
-    document.querySelectorAll('.phone-input:not(:disabled)').forEach(function(i) {
-        var l = i.value.length;
+    
+    // Get phone inputs from active template section
+    var activePhoneInputs = as.querySelectorAll('.phone-input:not(:disabled)');
+    
+    // Get phone inputs from common sections (witness phones)
+    var commonPhoneInputs = [];
+    if (cs && !cs.classList.contains('d-none')) {
+        commonPhoneInputs = cs.querySelectorAll('.phone-input:not(:disabled)');
+    }
+    
+    // Combine both sets of phone inputs
+    var allPhoneInputs = [];
+    activePhoneInputs.forEach(function(inp) {
+        allPhoneInputs.push(inp);
+    });
+    commonPhoneInputs.forEach(function(inp) {
+        allPhoneInputs.push(inp);
+    });
+    
+    // Validate only the relevant phone inputs
+    allPhoneInputs.forEach(function(i) {
+        // Skip if parent is hidden
+        var parentCol = i.closest('.col-md-4, .col-md-6, .col-12');
+        if (parentCol && parentCol.classList.contains('d-none')) {
+            return;
+        }
+        
+        var l = i.value.trim().length;
         var req = i.hasAttribute('data-required');
+        
         if (req && l === 0) {
             valid = false;
             i.classList.add('is-invalid');
-            if (!first) { first = i; msg = 'Phone required'; }
+            if (!first) { 
+                first = i; 
+                msg = 'Phone required'; 
+            }
         } else if (l > 0 && l !== 10) {
             valid = false;
             i.classList.add('is-invalid');
-            if (!first) { first = i; msg = 'Phone must be 10 digits'; }
+            if (!first) { 
+                first = i; 
+                msg = 'Phone must be 10 digits'; 
+            }
         } else if (l === 10) {
+            // Check for duplicates
             if (phoneValues.indexOf(i.value) !== -1) {
                 valid = false;
                 i.classList.add('is-invalid');
-                if (!first) { first = i; msg = 'Duplicate phone numbers found!'; }
+                if (!first) { 
+                    first = i; 
+                    msg = 'Duplicate phone numbers found!'; 
+                }
             } else {
                 phoneValues.push(i.value);
+                i.classList.remove('is-invalid');
+                i.classList.add('is-valid');
             }
+        } else {
+            i.classList.remove('is-invalid');
         }
     });
 
