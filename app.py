@@ -2112,8 +2112,30 @@ def generate_documents_to_memory(draft):
         
         template_config = TEMPLATE_CONFIG[template_type]
         
+        # CRITICAL: Ensure WIFE_OF and SPOUSE_NAME1 are set (even if empty)
+        # This ensures placeholders get replaced with empty strings in the document
+        if 'WIFE_OF' not in replacements:
+            replacements['WIFE_OF'] = ''
+        if 'SPOUSE_NAME1' not in replacements:
+            replacements['SPOUSE_NAME1'] = ''
+        if 'HE_SHE' not in replacements:
+            # Determine from gender
+            gender = replacements.get('GENDER_UPDATE', '').upper()
+            son_daughter = replacements.get('SON-DAUGHTER', '').lower()
+            if son_daughter == 'son':
+                replacements['HE_SHE'] = 'he'
+            elif son_daughter == 'daughter':
+                replacements['HE_SHE'] = 'she'
+            elif gender == 'MALE':
+                replacements['HE_SHE'] = 'he'
+            elif gender == 'FEMALE':
+                replacements['HE_SHE'] = 'she'
+            else:
+                replacements['HE_SHE'] = 'he/she'
+        
         # Get template folder from preview_data or determine from relation
         template_folder_str = preview_data.get('template_folder')
+
         
         if not template_folder_str:
             # Determine folder based on relation
@@ -3155,17 +3177,19 @@ def api_save_draft_from_preview():
         user_id = session.get('user_id')
         data = request.json
         
-        # Get data from request or session
+        # Get data from request
         replacements = data.get('replacements', {})
         template_type = data.get('template_type', '')
         preview_data = data.get('preview_data', {})
+        folder_type = data.get('folder_type', 'main')
         
-        # If we have session preview_data, use that
+        # If we have session preview_data and no replacements from request, use session data
         if 'preview_data' in session and not replacements:
             session_preview = session['preview_data']
             replacements = session_preview.get('replacements', {})
             template_type = session_preview.get('template_type', template_type)
             preview_data = session_preview
+            folder_type = session_preview.get('folder_type', folder_type)
         
         if not template_type:
             return jsonify({'success': False, 'message': 'Template type is required'})
@@ -3173,7 +3197,35 @@ def api_save_draft_from_preview():
         if not replacements:
             return jsonify({'success': False, 'message': 'No data to save'})
         
+        # CRITICAL: Ensure WIFE_OF and SPOUSE_NAME1 are set (even if empty)
+        # This ensures placeholders get replaced with empty strings
+        if 'WIFE_OF' not in replacements:
+            replacements['WIFE_OF'] = ''
+        if 'SPOUSE_NAME1' not in replacements:
+            replacements['SPOUSE_NAME1'] = ''
+        if 'HE_SHE' not in replacements:
+            # Determine from gender or relation
+            gender = replacements.get('GENDER_UPDATE', '').upper()
+            if gender == 'MALE':
+                replacements['HE_SHE'] = 'he'
+            elif gender == 'FEMALE':
+                replacements['HE_SHE'] = 'she'
+            else:
+                replacements['HE_SHE'] = 'he/she'
+        
         template_config = TEMPLATE_CONFIG.get(template_type, {})
+        
+        # Update preview_data with folder_type
+        if not preview_data:
+            preview_data = {}
+        preview_data['folder_type'] = folder_type
+        preview_data['replacements'] = replacements
+        
+        # Determine template folder
+        if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
+            preview_data['template_folder'] = template_config['unmarried_subfolder']
+        else:
+            preview_data['template_folder'] = template_config.get('folder', '')
         
         # Create new draft
         new_draft = Draft(
@@ -3204,6 +3256,7 @@ def api_save_draft_from_preview():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)})
+    
 
 @app.route('/api/dashboard/stats')
 @login_required
