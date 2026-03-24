@@ -9,6 +9,11 @@ let selectedDocIds = new Set();
 let currentFolderType = 'main';
 let currentGenerateDocId = null;
 
+
+// ==================== SEARCH VARIABLES (ADD AT TOP) ====================
+let currentSearchTerm = '';
+let filteredDocuments = [];
+
 // Cast options - should match your config
 const CAST_OPTIONS = ['HINDU', 'MUSLIM', 'CHRISTIAN', 'SIKH', 'JAIN', 'BUDDHIST', 'OTHER'];
 
@@ -172,6 +177,7 @@ async function loadUsers() {
     }
 }
 
+
 function renderUsers() {
     const tbody = document.getElementById('usersTableBody');
     const emptyState = document.getElementById('usersEmptyState');
@@ -193,15 +199,76 @@ function renderUsers() {
     allUsers.forEach(user => {
         const createdAt = user.created_at ? formatDate(new Date(user.created_at)) : 'N/A';
         const lastLogin = user.last_login ? formatDate(new Date(user.last_login)) : 'Never';
+        
+        // Determine approval status for regular users
+        let approvalBadge = '';
+        if (user.role === 'user') {
+            if (user.is_approved) {
+                approvalBadge = '<span class="badge bg-success ms-1"><i class="bi bi-check-circle me-1"></i>Approved</span>';
+            } else {
+                approvalBadge = '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-clock me-1"></i>Pending</span>';
+            }
+        } else {
+            // Admins are auto-approved
+            approvalBadge = '<span class="badge bg-info ms-1"><i class="bi bi-shield-check me-1"></i>Auto</span>';
+        }
+
+        // Build action buttons
+        let actionButtons = '';
+        
+        // Edit button
+        actionButtons += `
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="openEditUser('${user.id}')" title="Edit User">
+                <i class="bi bi-pencil"></i>
+            </button>
+        `;
+        
+        // Approval buttons (only for regular users)
+        if (user.role === 'user') {
+            if (!user.is_approved) {
+                // Show Approve button
+                actionButtons += `
+                    <button class="btn btn-sm btn-success me-1" onclick="approveUser('${user.id}', '${escapeHtml(user.name)}')" title="Approve User">
+                        <i class="bi bi-check-circle"></i>
+                    </button>
+                `;
+            } else {
+                // Show Revoke Approval button
+                actionButtons += `
+                    <button class="btn btn-sm btn-warning me-1" onclick="rejectUser('${user.id}', '${escapeHtml(user.name)}')" title="Revoke Approval">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                `;
+            }
+        }
+        
+        // Activate/Deactivate button
+        actionButtons += `
+            <button class="btn btn-sm btn-outline-${user.is_active ? 'warning' : 'success'} me-1" 
+                    onclick="toggleUserStatus('${user.id}')" 
+                    title="${user.is_active ? 'Deactivate' : 'Activate'}">
+                <i class="bi bi-${user.is_active ? 'pause' : 'play'}"></i>
+            </button>
+        `;
+        
+        // Delete button
+        actionButtons += `
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteUser('${user.id}', '${escapeHtml(user.name)}')" title="Delete User">
+                <i class="bi bi-trash"></i>
+            </button>
+        `;
 
         html += `
-            <tr>
+            <tr class="${!user.is_approved && user.role === 'user' ? 'table-warning' : ''}">
                 <td>
                     <div class="d-flex align-items-center">
-                        <div class="me-2" style="width: 40px; height: 40px; border-radius: 10px; background: var(--primary-gradient); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700;">
+                        <div class="me-2" style="width: 40px; height: 40px; border-radius: 10px; background: ${user.is_approved || user.role !== 'user' ? 'var(--primary-gradient)' : 'linear-gradient(135deg, #ffc107 0%, #ff9800 100%)'}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700;">
                             ${user.name.charAt(0).toUpperCase()}
                         </div>
-                        <div class="fw-semibold">${escapeHtml(user.name)}</div>
+                        <div>
+                            <div class="fw-semibold">${escapeHtml(user.name)}</div>
+                            ${!user.is_approved && user.role === 'user' ? '<small class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>Needs Approval</small>' : ''}
+                        </div>
                     </div>
                 </td>
                 <td>${escapeHtml(user.email)}</td>
@@ -210,27 +277,185 @@ function renderUsers() {
                     <span class="badge ${user.is_active ? 'bg-success' : 'bg-danger'}">
                         ${user.is_active ? 'Active' : 'Inactive'}
                     </span>
+                    ${approvalBadge}
                 </td>
                 <td><small class="text-muted">${createdAt}</small></td>
                 <td><small class="text-muted">${lastLogin}</small></td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="openEditUser('${user.id}')" title="Edit">
-                        <i class="bi bi-pencil"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-${user.is_active ? 'warning' : 'success'} me-1" 
-                            onclick="toggleUserStatus('${user.id}')" 
-                            title="${user.is_active ? 'Deactivate' : 'Activate'}">
-                        <i class="bi bi-${user.is_active ? 'pause' : 'play'}"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteUser('${user.id}', '${escapeHtml(user.name)}')" title="Delete">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                <td class="text-nowrap">
+                    ${actionButtons}
                 </td>
             </tr>
         `;
     });
 
     tbody.innerHTML = html;
+}
+
+// ==================== USER SEARCH FILTER FUNCTIONS ====================
+
+/**
+ * Search documents by user name ONLY
+ */
+function searchDocumentsByUser() {
+    const searchInput = document.getElementById('userSearchInput');
+    if (!searchInput) return;
+    
+    currentSearchTerm = searchInput.value.trim().toLowerCase();
+    
+    updateSearchResultsInfo();
+    renderDocuments();
+}
+
+/**
+ * Clear user search filter
+ */
+function clearUserSearch() {
+    const searchInput = document.getElementById('userSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    
+    currentSearchTerm = '';
+    
+    const searchResultsInfo = document.getElementById('searchResultsInfo');
+    if (searchResultsInfo) {
+        searchResultsInfo.classList.add('d-none');
+    }
+    
+    renderDocuments();
+}
+
+/**
+ * Update search results info banner
+ */
+function updateSearchResultsInfo() {
+    const searchResultsInfo = document.getElementById('searchResultsInfo');
+    const searchResultsText = document.getElementById('searchResultsText');
+    
+    if (!searchResultsInfo || !searchResultsText) return;
+    
+    if (currentSearchTerm) {
+        // Count matching documents - ONLY by user_name
+        let matchCount = 0;
+        let matchingUsers = new Set();
+        
+        allDocuments.forEach(doc => {
+            const userName = (doc.user_name || '').toLowerCase();
+            if (userName.includes(currentSearchTerm)) {
+                matchCount++;
+                matchingUsers.add(doc.user_name || 'Unknown');
+            }
+        });
+        
+        if (matchCount > 0) {
+            const userList = Array.from(matchingUsers).join(', ');
+            searchResultsText.innerHTML = `
+                Found <strong>${matchCount}</strong> document(s) for: <strong>${escapeHtml(userList)}</strong>
+            `;
+            searchResultsInfo.classList.remove('d-none');
+            searchResultsInfo.className = 'alert alert-success py-2';
+        } else {
+            searchResultsText.innerHTML = `
+                No documents found for user "<strong>${escapeHtml(currentSearchTerm)}</strong>"
+            `;
+            searchResultsInfo.classList.remove('d-none');
+            searchResultsInfo.className = 'alert alert-warning py-2';
+        }
+    } else {
+        searchResultsInfo.classList.add('d-none');
+    }
+}
+
+/**
+ * Debounce function for search input
+ */
+function debounceSearch() {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+        searchDocumentsByUser();
+    }, 300);
+}
+
+/**
+ * Escape regex special characters
+ */
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Clear user search filter
+ */
+function clearUserSearch() {
+    const searchInput = document.getElementById('userSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    
+    currentSearchTerm = '';
+    
+    // Hide search results info
+    const searchResultsInfo = document.getElementById('searchResultsInfo');
+    if (searchResultsInfo) {
+        searchResultsInfo.classList.add('d-none');
+    }
+    
+    // Re-render documents without search filter
+    renderDocuments();
+}
+
+/**
+ * Update search results info banner
+ */
+function updateSearchResultsInfo() {
+    const searchResultsInfo = document.getElementById('searchResultsInfo');
+    const searchResultsText = document.getElementById('searchResultsText');
+    
+    if (!searchResultsInfo || !searchResultsText) return;
+    
+    if (currentSearchTerm) {
+        // Count matching documents
+        let matchCount = 0;
+        let matchingUsers = new Set();
+        
+        allDocuments.forEach(doc => {
+            const userName = (doc.user_name || '').toLowerCase();
+            if (userName.includes(currentSearchTerm)) {
+                matchCount++;
+                matchingUsers.add(doc.user_name || 'Unknown');
+            }
+        });
+        
+        if (matchCount > 0) {
+            const userList = Array.from(matchingUsers).slice(0, 3).join(', ');
+            const moreText = matchingUsers.size > 3 ? ` and ${matchingUsers.size - 3} more` : '';
+            searchResultsText.innerHTML = `
+                Found <strong>${matchCount}</strong> document(s) for user(s): 
+                <strong>${userList}${moreText}</strong>
+            `;
+            searchResultsInfo.classList.remove('d-none');
+            searchResultsInfo.className = 'alert alert-success py-2';
+        } else {
+            searchResultsText.innerHTML = `
+                No documents found for "<strong>${escapeHtml(currentSearchTerm)}</strong>"
+            `;
+            searchResultsInfo.classList.remove('d-none');
+            searchResultsInfo.className = 'alert alert-warning py-2';
+        }
+    } else {
+        searchResultsInfo.classList.add('d-none');
+    }
+}
+
+/**
+ * Debounce function for search input
+ */
+let searchDebounceTimer = null;
+function debounceSearch() {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+        searchDocumentsByUser();
+    }, 300);
 }
 
 // ==================== USER ACTIONS ====================
@@ -406,15 +631,23 @@ async function loadDocuments() {
 function filterAdminDocs(status) {
     currentDocFilter = status;
 
+    // Update button active states
     document.querySelectorAll('#admin-documents .btn-group .btn').forEach(btn => {
         btn.classList.remove('active');
     });
+    
     if (event && event.target) {
         event.target.classList.add('active');
     }
 
+    // Clear selection
     selectedDocIds.clear();
     updateBulkDownloadButton();
+
+    // Update search info if active
+    if (currentSearchTerm) {
+        updateSearchResultsInfo();
+    }
 
     renderDocuments();
 }
@@ -426,37 +659,71 @@ function renderDocuments() {
 
     if (!tbody) return;
 
+    // Step 1: Apply status filter
     let filteredDocs = allDocuments;
     if (currentDocFilter !== 'all') {
         filteredDocs = allDocuments.filter(d => d.status === currentDocFilter);
     }
 
+    // Step 2: Apply user search filter - ONLY by user_name
+    if (currentSearchTerm) {
+        filteredDocs = filteredDocs.filter(doc => {
+            const userName = (doc.user_name || '').toLowerCase();
+            return userName.includes(currentSearchTerm);
+        });
+    }
+
+    // Step 3: Handle empty state
     if (filteredDocs.length === 0) {
         tbody.innerHTML = '';
         if (table) table.classList.add('d-none');
-        if (emptyState) emptyState.classList.remove('d-none');
+        if (emptyState) {
+            emptyState.classList.remove('d-none');
+            
+            const emptyTitle = emptyState.querySelector('h5');
+            const emptyDesc = emptyState.querySelector('p');
+            
+            if (currentSearchTerm) {
+                if (emptyTitle) emptyTitle.textContent = 'No matching documents';
+                if (emptyDesc) emptyDesc.textContent = `No documents found for user "${currentSearchTerm}"`;
+            } else if (currentDocFilter !== 'all') {
+                if (emptyTitle) emptyTitle.textContent = 'No documents found';
+                if (emptyDesc) emptyDesc.textContent = `No ${currentDocFilter} documents`;
+            } else {
+                if (emptyTitle) emptyTitle.textContent = 'No documents found';
+                if (emptyDesc) emptyDesc.textContent = 'Documents will appear here';
+            }
+        }
         return;
     }
 
     if (table) table.classList.remove('d-none');
     if (emptyState) emptyState.classList.add('d-none');
 
+    // Step 4: Render documents
     let html = '';
     filteredDocs.forEach(doc => {
         const date = new Date(doc.modified_at);
         const formattedDate = formatDate(date);
         const isSelected = selectedDocIds.has(doc.id);
 
+        // Highlight search term in user name ONLY
+        let displayUserName = escapeHtml(doc.user_name || 'Unknown');
+        if (currentSearchTerm) {
+            const regex = new RegExp(`(${escapeRegex(currentSearchTerm)})`, 'gi');
+            displayUserName = displayUserName.replace(regex, '<mark>$1</mark>');
+        }
+
         let actionButtons = '';
 
-        // View button - always available (shows CD content for admin)
+        // View button
         actionButtons += `
             <button class="btn btn-sm btn-view" onclick="viewDocument('${doc.id}')" title="View Details & CD Content">
                 <i class="bi bi-eye me-1"></i>View
             </button>
         `;
 
-        // Edit button - available for draft, pending, approved (not generated)
+        // Edit button
         if (doc.status !== 'generated') {
             actionButtons += `
                 <button class="btn btn-sm btn-edit" onclick="openEditDocument('${doc.id}')" title="Edit Document">
@@ -465,7 +732,7 @@ function renderDocuments() {
             `;
         }
 
-        // Approve button - for draft and pending only
+        // Approve button
         if (doc.status === 'draft' || doc.status === 'pending') {
             actionButtons += `
                 <button class="btn btn-sm btn-approve" onclick="approveDocument('${doc.id}')" title="Approve Document">
@@ -474,7 +741,7 @@ function renderDocuments() {
             `;
         }
 
-        // Generate button - for approved only (shows preview first)
+        // Generate button
         if (doc.status === 'approved') {
             actionButtons += `
                 <button class="btn btn-sm btn-generate" onclick="showGeneratePreview('${doc.id}')" title="Preview & Generate">
@@ -483,7 +750,7 @@ function renderDocuments() {
             `;
         }
 
-        // Download button - for generated only
+        // Download button
         if (doc.status === 'generated') {
             actionButtons += `
                 <button class="btn btn-sm btn-download" onclick="downloadDocument('${doc.id}')" title="Download Documents">
@@ -511,7 +778,7 @@ function renderDocuments() {
                         <div class="me-2" style="width: 30px; height: 30px; border-radius: 6px; background: var(--info-gradient); display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75rem; font-weight: 600;">
                             ${(doc.user_name || 'U').charAt(0).toUpperCase()}
                         </div>
-                        <small>${escapeHtml(doc.user_name || 'Unknown')}</small>
+                        <small>${displayUserName}</small>
                     </div>
                 </td>
                 <td>
@@ -534,6 +801,27 @@ function renderDocuments() {
     });
 
     tbody.innerHTML = html;
+}
+
+/**
+ * Update document count display
+ */
+function updateDocumentCount(filtered, total) {
+    const countElement = document.getElementById('documentCount');
+    if (countElement) {
+        if (currentSearchTerm || currentDocFilter !== 'all') {
+            countElement.textContent = `Showing ${filtered} of ${total}`;
+        } else {
+            countElement.textContent = `Total: ${total}`;
+        }
+    }
+}
+
+/**
+ * Escape regex special characters
+ */
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function getTemplateBadgeClass(templateType) {
@@ -1997,6 +2285,60 @@ function collectFormData() {
 
     return updatedReplacements;
 }
+
+
+// ==================== USER APPROVAL FUNCTIONS ====================
+
+async function approveUser(userId, userName) {
+    if (!confirm(`Approve user "${userName}"?\n\nThey will be able to login after approval.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/approve`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('success', 'User Approved', `${userName} can now login to the system`);
+            loadUsers();
+            loadAdminStats();
+        } else {
+            showToast('error', 'Error', data.message || 'Failed to approve user');
+        }
+    } catch (error) {
+        console.error('Error approving user:', error);
+        showToast('error', 'Error', 'Failed to approve user');
+    }
+}
+
+async function rejectUser(userId, userName) {
+    if (!confirm(`Revoke approval for "${userName}"?\n\nThey will not be able to login until re-approved.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/users/${userId}/reject`, {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showToast('success', 'Approval Revoked', `${userName} can no longer login`);
+            loadUsers();
+            loadAdminStats();
+        } else {
+            showToast('error', 'Error', data.message || 'Failed to reject user');
+        }
+    } catch (error) {
+        console.error('Error rejecting user:', error);
+        showToast('error', 'Error', 'Failed to reject user');
+    }
+}
+
 
 // ==================== APPROVE DOCUMENT ====================
 async function approveDocument(docId) {
