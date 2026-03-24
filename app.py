@@ -3569,34 +3569,6 @@ with app.app_context():
     db.create_all()
 
 
-# Initialize database tables
-with app.app_context():
-    try:
-        db.create_all()
-        print("✅ Database tables created/verified successfully!")
-        
-        # Check if tables exist
-        inspector = db.inspect(db.engine)
-        tables = inspector.get_table_names()
-        print(f"📋 Existing tables: {tables}")
-        
-        # Check User table columns
-        if 'users' in tables:
-            columns = [col['name'] for col in inspector.get_columns('users')]
-            print(f"👤 User table columns: {columns}")
-            
-            # Verify required columns exist
-            required_columns = ['id', 'name', 'email', 'password_hash', 'is_approved', 'is_active']
-            missing = [col for col in required_columns if col not in columns]
-            if missing:
-                print(f"⚠️  WARNING: Missing columns in users table: {missing}")
-            else:
-                print("✅ All required columns exist in users table")
-    except Exception as e:
-        print(f"❌ Database initialization error: {e}")
-        import traceback
-        traceback.print_exc()
-
 # For local development
 if __name__ == '__main__':
     app.run(debug=True)
