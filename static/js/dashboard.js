@@ -354,13 +354,140 @@ async function submitForApproval(draftId) {
     }
 }
 
-// ==================== VIEW DRAFT ====================
+// ==================== CD DOCUMENT PREVIEW FUNCTIONS ====================
+
+/**
+ * Load CD document content from the server
+ */
+async function loadCdDocumentContent(draftId, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="cd-loading">
+            <i class="bi bi-arrow-repeat"></i>
+            <p>Loading CD document...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch(`/api/drafts/${draftId}/cd-preview`);
+        const data = await response.json();
+
+        if (data.success && data.cd_content) {
+            container.innerHTML = data.cd_content;
+        } else {
+            container.innerHTML = `
+                <div class="text-center py-4">
+                    <i class="bi bi-file-earmark-x text-muted" style="font-size: 2rem;"></i>
+                    <p class="text-muted mt-2">${data.message || 'CD document not available'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading CD content:', error);
+        container.innerHTML = `
+            <div class="text-center py-4">
+                <i class="bi bi-exclamation-triangle text-danger" style="font-size: 2rem;"></i>
+                <p class="text-danger mt-2">Failed to load CD document</p>
+            </div>
+        `;
+    }
+}
+
+/**
+ * Copy CD content to clipboard
+ */
+async function copyCdContent(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+        showToast('error', 'Error', 'Content container not found');
+        return;
+    }
+
+    if (container.querySelector('.cd-loading')) {
+        showToast('warning', 'Please Wait', 'CD document is still loading...');
+        return;
+    }
+
+    if (container.querySelector('.bi-exclamation-triangle')) {
+        showToast('warning', 'Cannot Copy', 'CD document failed to load');
+        return;
+    }
+
+    try {
+        const contentWrapper = container.querySelector('.cd-content-wrapper');
+        if (!contentWrapper) {
+            showToast('warning', 'No Content', 'No CD content available to copy');
+            return;
+        }
+
+        let textContent = '';
+        const elements = contentWrapper.querySelectorAll('.cd-paragraph, .cd-heading, .cd-title, p');
+
+        if (elements.length > 0) {
+            elements.forEach(elem => {
+                let text = elem.innerText || elem.textContent;
+                text = text.trim();
+                if (text) {
+                    textContent += text + '\n\n';
+                }
+            });
+        } else {
+            textContent = contentWrapper.innerText || contentWrapper.textContent;
+        }
+
+        textContent = textContent.replace(/\n{3,}/g, '\n\n').trim();
+
+        if (!textContent) {
+            showToast('warning', 'No Content', 'No content available to copy');
+            return;
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(textContent);
+        } else {
+            const textArea = document.createElement('textarea');
+            textArea.value = textContent;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+            } finally {
+                document.body.removeChild(textArea);
+            }
+        }
+
+        // Visual feedback
+        const btn = event?.target?.closest('.cd-copy-btn');
+        if (btn) {
+            const originalHTML = btn.innerHTML;
+            btn.classList.add('copied');
+            btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Copied!';
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                btn.innerHTML = originalHTML;
+            }, 2000);
+        }
+
+        showToast('success', 'Copied!', 'CD content copied to clipboard');
+    } catch (error) {
+        console.error('Error copying content:', error);
+        showToast('error', 'Copy Failed', 'Failed to copy content to clipboard');
+    }
+}
+
+// ==================== VIEW DRAFT - UPDATED WITH CD PREVIEW ====================
 function viewDraft(draftId) {
     const draft = allDrafts.find(d => d.id === draftId);
     if (!draft) return;
     
     const r = draft.replacements || {};
     const templateType = draft.template_type;
+    const cdContainerId = `viewCdContent_${draftId}`;
     
     let html = `
         <div class="mb-3" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -368,6 +495,32 @@ function viewDraft(draftId) {
                 <i class="bi bi-file-earmark-text me-1"></i>${escapeHtml(draft.template_name)}
             </span>
             <span class="status-badge ${draft.status} fs-6">${draft.status.toUpperCase()}</span>
+        </div>
+    `;
+    
+    // CD DOCUMENT PREVIEW SECTION
+    html += `
+        <div class="cd-document-section">
+            <div class="cd-document-header">
+                <div class="cd-document-icon">
+                    <i class="bi bi-file-earmark-richtext"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h6 class="cd-document-title mb-0">CD Document Preview</h6>
+                    <small class="text-muted">Document content with your filled values</small>
+                </div>
+            </div>
+            <div class="cd-copy-btn-container text-end mb-2">
+                <button class="cd-copy-btn" onclick="copyCdContent('${cdContainerId}')">
+                    <i class="bi bi-clipboard me-1"></i> Copy Content
+                </button>
+            </div>
+            <div class="cd-document-content" id="${cdContainerId}">
+                <div class="cd-loading">
+                    <i class="bi bi-arrow-repeat"></i>
+                    <p>Loading CD document...</p>
+                </div>
+            </div>
         </div>
     `;
     
@@ -383,7 +536,6 @@ function viewDraft(draftId) {
             <div class="row">
     `;
     
-    // Old Name & New Name
     if (r['OLD_NAME']) {
         html += `
             <div class="col-md-6">
@@ -406,7 +558,6 @@ function viewDraft(draftId) {
         `;
     }
     
-    // Relationship
     if (r['UPDATE_RELATION']) {
         html += `
             <div class="col-md-4">
@@ -418,7 +569,6 @@ function viewDraft(draftId) {
         `;
     }
     
-    // Father/Spouse
     if (r['FATHER-SPOUSE_NAME']) {
         html += `
             <div class="col-md-4">
@@ -441,7 +591,6 @@ function viewDraft(draftId) {
         `;
     }
     
-    // Father/Mother for Minor
     if (r['FATHER-MOTHER_NAME']) {
         html += `
             <div class="col-md-6">
@@ -453,7 +602,6 @@ function viewDraft(draftId) {
         `;
     }
     
-    // Gender
     if (r['GENDER_UPDATE']) {
         html += `
             <div class="col-md-4">
@@ -465,7 +613,6 @@ function viewDraft(draftId) {
         `;
     }
     
-    // Religion/Cast
     if (r['CAST_UPDATE']) {
         html += `
             <div class="col-md-4">
@@ -477,7 +624,7 @@ function viewDraft(draftId) {
         `;
     }
     
-    html += `</div></div>`; // Close personal section
+    html += `</div></div>`;
     
     // CHILD DETAILS (for Minor template)
     if (templateType === 'minor_template') {
@@ -493,239 +640,70 @@ function viewDraft(draftId) {
         `;
         
         if (r['SON-DAUGHTER']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Son/Daughter</label>
-                        <div class="view-doc-value">${escapeHtml(r['SON-DAUGHTER'])}</div>
-                    </div>
-                </div>
-            `;
+            html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Son/Daughter</label><div class="view-doc-value">${escapeHtml(r['SON-DAUGHTER'])}</div></div></div>`;
         }
-        
         if (r['UPDATE_AGE']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-calendar-event me-1"></i>Age</label>
-                        <div class="view-doc-value">${escapeHtml(r['UPDATE_AGE'])} years</div>
-                    </div>
-                </div>
-            `;
+            html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-calendar-event me-1"></i>Age</label><div class="view-doc-value">${escapeHtml(r['UPDATE_AGE'])} years</div></div></div>`;
         }
-        
         if (r['CHILD_DOB']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-cake me-1"></i>Date of Birth</label>
-                        <div class="view-doc-value">${escapeHtml(r['CHILD_DOB'])}</div>
-                    </div>
-                </div>
-            `;
+            html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-cake me-1"></i>Date of Birth</label><div class="view-doc-value">${escapeHtml(r['CHILD_DOB'])}</div></div></div>`;
         }
-        
         if (r['BIRTH_PLACE']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Birth Place</label>
-                        <div class="view-doc-value">${escapeHtml(r['BIRTH_PLACE'])}</div>
-                    </div>
-                </div>
-            `;
+            html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Birth Place</label><div class="view-doc-value">${escapeHtml(r['BIRTH_PLACE'])}</div></div></div>`;
         }
         
-        html += `</div></div>`; // Close child section
+        html += `</div></div>`;
     }
     
-    // CONTACT INFORMATION SECTION
+    // CONTACT INFORMATION
     html += `
         <div class="view-doc-section contact">
             <div class="view-doc-section-header">
-                <div class="view-doc-section-icon">
-                    <i class="bi bi-telephone-fill"></i>
-                </div>
+                <div class="view-doc-section-icon"><i class="bi bi-telephone-fill"></i></div>
                 <h6 class="view-doc-section-title">Contact Information</h6>
             </div>
             <div class="row">
     `;
+    if (r['PHONE_UPDATE']) html += `<div class="col-md-4"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone</label><div class="view-doc-value">${escapeHtml(r['PHONE_UPDATE'])}</div></div></div>`;
+    if (r['EMAIL_UPDATE']) html += `<div class="col-md-8"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-envelope me-1"></i>Email</label><div class="view-doc-value">${escapeHtml(r['EMAIL_UPDATE'])}</div></div></div>`;
+    if (r['UPDATE_ADDRESS']) html += `<div class="col-12"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-geo-alt-fill me-1"></i>Address</label><div class="view-doc-value">${escapeHtml(r['UPDATE_ADDRESS'])}</div></div></div>`;
+    html += `</div></div>`;
     
-    if (r['PHONE_UPDATE']) {
-        html += `
-            <div class="col-md-4">
-                <div class="view-doc-field">
-                    <label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone Number</label>
-                    <div class="view-doc-value">${escapeHtml(r['PHONE_UPDATE'])}</div>
-                </div>
-            </div>
-        `;
-    }
-    
-    if (r['EMAIL_UPDATE']) {
-        html += `
-            <div class="col-md-8">
-                <div class="view-doc-field">
-                    <label class="view-doc-label"><i class="bi bi-envelope me-1"></i>Email Address</label>
-                    <div class="view-doc-value">${escapeHtml(r['EMAIL_UPDATE'])}</div>
-                </div>
-            </div>
-        `;
-    }
-    
-    if (r['UPDATE_ADDRESS']) {
-        html += `
-            <div class="col-12">
-                <div class="view-doc-field">
-                    <label class="view-doc-label"><i class="bi bi-geo-alt-fill me-1"></i>Address</label>
-                    <div class="view-doc-value">${escapeHtml(r['UPDATE_ADDRESS'])}</div>
-                </div>
-            </div>
-        `;
-    }
-    
-    html += `</div></div>`; // Close contact section
-    
-    // WITNESS DETAILS SECTIONS
+    // WITNESS 1
     if (r['WITNESS_NAME1'] || r['WITNESS_PHONE1'] || r['WITNESS_ADDRESS1']) {
-        html += `
-            <div class="view-doc-section witness">
-                <div class="view-doc-section-header">
-                    <div class="view-doc-section-icon">
-                        <i class="bi bi-1-circle-fill"></i>
-                    </div>
-                    <h6 class="view-doc-section-title">Witness 1 Details</h6>
-                </div>
-                <div class="row">
-        `;
-        
-        if (r['WITNESS_NAME1']) {
-            html += `
-                <div class="col-md-4">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Name</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_NAME1'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (r['WITNESS_PHONE1']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_PHONE1'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (r['WITNESS_ADDRESS1']) {
-            html += `
-                <div class="col-md-5">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Address</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_ADDRESS1'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
+        html += `<div class="view-doc-section witness"><div class="view-doc-section-header"><div class="view-doc-section-icon"><i class="bi bi-1-circle-fill"></i></div><h6 class="view-doc-section-title">Witness 1</h6></div><div class="row">`;
+        if (r['WITNESS_NAME1']) html += `<div class="col-md-4"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Name</label><div class="view-doc-value">${escapeHtml(r['WITNESS_NAME1'])}</div></div></div>`;
+        if (r['WITNESS_PHONE1']) html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone</label><div class="view-doc-value">${escapeHtml(r['WITNESS_PHONE1'])}</div></div></div>`;
+        if (r['WITNESS_ADDRESS1']) html += `<div class="col-md-5"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Address</label><div class="view-doc-value">${escapeHtml(r['WITNESS_ADDRESS1'])}</div></div></div>`;
         html += `</div></div>`;
     }
     
+    // WITNESS 2
     if (r['WITNESS_NAME2'] || r['WITNESS_PHONE2'] || r['WITNESS_ADDRESS2']) {
-        html += `
-            <div class="view-doc-section witness">
-                <div class="view-doc-section-header">
-                    <div class="view-doc-section-icon">
-                        <i class="bi bi-2-circle-fill"></i>
-                    </div>
-                    <h6 class="view-doc-section-title">Witness 2 Details</h6>
-                </div>
-                <div class="row">
-        `;
-        
-        if (r['WITNESS_NAME2']) {
-            html += `
-                <div class="col-md-4">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Name</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_NAME2'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (r['WITNESS_PHONE2']) {
-            html += `
-                <div class="col-md-3">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_PHONE2'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (r['WITNESS_ADDRESS2']) {
-            html += `
-                <div class="col-md-5">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Address</label>
-                        <div class="view-doc-value">${escapeHtml(r['WITNESS_ADDRESS2'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
+        html += `<div class="view-doc-section witness"><div class="view-doc-section-header"><div class="view-doc-section-icon"><i class="bi bi-2-circle-fill"></i></div><h6 class="view-doc-section-title">Witness 2</h6></div><div class="row">`;
+        if (r['WITNESS_NAME2']) html += `<div class="col-md-4"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-person-badge me-1"></i>Name</label><div class="view-doc-value">${escapeHtml(r['WITNESS_NAME2'])}</div></div></div>`;
+        if (r['WITNESS_PHONE2']) html += `<div class="col-md-3"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-phone me-1"></i>Phone</label><div class="view-doc-value">${escapeHtml(r['WITNESS_PHONE2'])}</div></div></div>`;
+        if (r['WITNESS_ADDRESS2']) html += `<div class="col-md-5"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-geo-alt me-1"></i>Address</label><div class="view-doc-value">${escapeHtml(r['WITNESS_ADDRESS2'])}</div></div></div>`;
         html += `</div></div>`;
     }
     
-    // DATES SECTION
+    // DATES
     if (r['NUM_DATE'] || r['ALPHA_DATE']) {
-        html += `
-            <div class="view-doc-section dates">
-                <div class="view-doc-section-header">
-                    <div class="view-doc-section-icon">
-                        <i class="bi bi-calendar-check"></i>
-                    </div>
-                    <h6 class="view-doc-section-title">Submission Dates</h6>
-                </div>
-                <div class="row">
-        `;
-        
-        if (r['NUM_DATE']) {
-            html += `
-                <div class="col-md-6">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-calendar3 me-1"></i>Numeric Date</label>
-                        <div class="view-doc-value">${escapeHtml(r['NUM_DATE'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
-        if (r['ALPHA_DATE']) {
-            html += `
-                <div class="col-md-6">
-                    <div class="view-doc-field">
-                        <label class="view-doc-label"><i class="bi bi-calendar-text me-1"></i>Alpha Date</label>
-                        <div class="view-doc-value">${escapeHtml(r['ALPHA_DATE'])}</div>
-                    </div>
-                </div>
-            `;
-        }
-        
+        html += `<div class="view-doc-section dates"><div class="view-doc-section-header"><div class="view-doc-section-icon"><i class="bi bi-calendar-check"></i></div><h6 class="view-doc-section-title">Submission Dates</h6></div><div class="row">`;
+        if (r['NUM_DATE']) html += `<div class="col-md-6"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-calendar3 me-1"></i>Numeric Date</label><div class="view-doc-value">${escapeHtml(r['NUM_DATE'])}</div></div></div>`;
+        if (r['ALPHA_DATE']) html += `<div class="col-md-6"><div class="view-doc-field"><label class="view-doc-label"><i class="bi bi-calendar-text me-1"></i>Alpha Date</label><div class="view-doc-value">${escapeHtml(r['ALPHA_DATE'])}</div></div></div>`;
         html += `</div></div>`;
     }
     
     document.getElementById('viewDraftBody').innerHTML = html;
     viewDraftModal.show();
+    
+    // Load CD document content asynchronously
+    setTimeout(() => {
+        loadCdDocumentContent(draftId, cdContainerId);
+    }, 100);
 }
 
-// ==================== EDIT DRAFT - FULL FORM ====================
 function editDraft(draftId) {
     const draft = allDrafts.find(d => d.id === draftId);
     if (!draft) return;
@@ -758,14 +736,46 @@ function editDraft(draftId) {
     // Setup event listeners after modal is shown
     setTimeout(() => {
         setupEditFormListeners();
+        
+        // ==================== LOAD CD CONTENT HERE ====================
+        loadCdDocumentContent(currentEditDraftId, 'editCdContent');
+        // ==================== END LOAD CD CONTENT ====================
     }, 100);
 }
 
 function renderEditForm(draft) {
     const replacements = draft.replacements || {};
     const templateType = draft.template_type;
+    const cdContainerId = 'editCdContent'; // ← Unique ID for edit modal
     
     let html = '';
+    
+    // ==================== ADD CD PREVIEW SECTION HERE ====================
+    html += `
+        <div class="cd-document-section mb-3">
+            <div class="cd-document-header">
+                <div class="cd-document-icon">
+                    <i class="bi bi-file-earmark-richtext"></i>
+                </div>
+                <div class="flex-grow-1">
+                    <h6 class="cd-document-title mb-0">CD Document Preview</h6>
+                    <small class="text-muted">Live preview of your document content</small>
+                </div>
+            </div>
+            <div class="cd-copy-btn-container text-end mb-2">
+                <button class="cd-copy-btn" onclick="copyCdContent('${cdContainerId}')">
+                    <i class="bi bi-clipboard"></i> Copy Content
+                </button>
+            </div>
+            <div class="cd-document-content" id="${cdContainerId}" style="max-height: 250px;">
+                <div class="cd-loading">
+                    <i class="bi bi-arrow-repeat"></i>
+                    <p>Loading CD document...</p>
+                </div>
+            </div>
+        </div>
+    `;
+    // ==================== END CD PREVIEW SECTION ====================
     
     // Add folder type indicator for templates with unmarried options
     if (TEMPLATES_WITH_UNMARRIED.includes(templateType)) {
@@ -778,6 +788,7 @@ function renderEditForm(draft) {
             </div>
         `;
     }
+
     
     if (templateType === 'major_template') {
         html += renderMajorTemplateForm(replacements);
@@ -794,6 +805,7 @@ function renderEditForm(draft) {
     html += renderDateSection(replacements);
     
     document.getElementById('editDraftBody').innerHTML = html;
+
 }
 
 function renderMajorTemplateForm(r) {
@@ -1410,8 +1422,30 @@ async function saveDraftChanges() {
         
         if (data.success) {
             showToast('success', 'Saved', 'Draft updated successfully!');
-            editDraftModal.hide();
+            
+            // ==================== RELOAD CD PREVIEW ====================
+            const cdContainer = document.getElementById('editCdContent');
+            if (cdContainer) {
+                cdContainer.innerHTML = `
+                    <div class="cd-loading">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <p>Reloading CD document...</p>
+                    </div>
+                `;
+                setTimeout(() => {
+                    loadCdDocumentContent(currentEditDraftId, 'editCdContent');
+                }, 300);
+            }
+            // ==================== END RELOAD CD PREVIEW ====================
+            
+            // Update current draft object
+            currentEditDraft.replacements = updatedReplacements;
+            
+            // Reload drafts list
             loadDrafts();
+            
+            // Don't hide modal - let user keep editing
+            // editDraftModal.hide(); ← Remove this line
         } else {
             showToast('error', 'Error', data.message || 'Failed to update draft');
         }
