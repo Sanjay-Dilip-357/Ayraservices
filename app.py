@@ -803,43 +803,82 @@ def login():
     return redirect(url_for('index'))
 
 
-
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
-    """API endpoint for login (handles super_admin, admin, and user)"""
+    """Login user with approval check"""
     try:
-        email = request.json.get('email', '').strip().lower()
-        password = request.json.get('password', '').strip()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        email = (data.get('email') or '').strip().lower()
+        password = (data.get('password') or '').strip()
         
         if not email or not password:
-            return jsonify({'success': False, 'message': 'Email and password are required'}), 400
+            return jsonify({
+                'success': False,
+                'message': 'Email and password are required'
+            }), 400
         
+        # Get user by email
         user = User.get_by_email(email)
         
         if not user:
-            return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
+            return jsonify({
+                'success': False,
+                'message': 'Invalid email or password'
+            }), 401
         
+        # Check password
         if not user.check_password(password):
-            return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
+            return jsonify({
+                'success': False,
+                'message': 'Invalid email or password'
+            }), 401
         
+        # Check if user is active
         if not user.is_active:
-            return jsonify({'success': False, 'message': 'Your account has been deactivated. Please contact admin.'}), 403
+            return jsonify({
+                'success': False,
+                'message': 'Your account has been deactivated. Please contact support.'
+            }), 403
         
-        # Set session
-        session['user_id'] = user.id
-        session['user_email'] = user.email
-        session['user_name'] = user.name
-        session['user_role'] = user.role
+        # Approval check - Skip for admins/super_admins
+        if user.role == 'user' and not user.is_approved:
+            return jsonify({
+                'success': False,
+                'message': 'Your account is pending admin approval. Please wait for confirmation.'
+            }), 403
         
         # Update last login
         user.last_login = datetime.utcnow()
         db.session.commit()
+        
+        # ✅ FIX: Set ALL session variables correctly
+        session['user_id'] = user.id
+        session['user_name'] = user.name      # ✅ Added
+        session['user_email'] = user.email    # ✅ Added
+        session['user_role'] = user.role      # ✅ FIXED: was 'role', now 'user_role'
+        session.permanent = True
+        
+        # ✅ FIX: Determine redirect URL based on role
+        if user.role == 'super_admin':
+            redirect_url = '/superadmin/dashboard'
+        elif user.role == 'admin':
+            redirect_url = '/admin/dashboard'
+        else:
+            redirect_url = '/dashboard'
         
         app.logger.info(f'User logged in: {email} (Role: {user.role})')
         
         return jsonify({
             'success': True,
             'message': 'Login successful',
+            'redirect': redirect_url,  # ✅ Added redirect URL
             'user': {
                 'id': user.id,
                 'name': user.name,
@@ -847,10 +886,145 @@ def api_login():
                 'role': user.role
             }
         }), 200
-    
+        
     except Exception as e:
-        app.logger.error(f'Login error: {str(e)}')
-        return jsonify({'success': False, 'message': 'An error occurred during login'}), 500
+        app.logger.error(f'Login Error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred during login. Please try again.'
+        }), 500
+
+# ==================== ADMIN USER APPROVAL ROUTES ====================
+
+@app.route('/api/admin/users/<user_id>/approve', methods=['POST'])
+@login_required
+@admin_required
+def api_approve_user(user_id):
+    """Approve a user account - allows them to login"""
+    try:
+        current_user_id = session.get('user_id')
+        current_user = User.query.get(current_user_id)
+        
+        if not current_user or not current_user.is_admin():
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+        
+        # Get user to approve
+        user = User.query.get(user_id)
+        
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': 'User not found'
+            }), 404
+        
+        # Don't approve admins (they're auto-approved)
+        if user.role in ['super_admin', 'admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Admin users are automatically approved'
+            }), 400
+        
+        # Check if already approved
+        if user.is_approved:
+            return jsonify({
+                'success': False,
+                'message': 'User is already approved'
+            }), 400
+        
+        # Approve the user
+        user.is_approved = True
+        user.approved_at = datetime.utcnow()
+        user.approved_by = current_user_id
+        
+        db.session.commit()
+        
+        app.logger.info(f'User approved: {user.email} by {current_user.email}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'User "{user.name}" has been approved and can now login',
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'Approve User Error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': 'Failed to approve user'
+        }), 500
+
+
+@app.route('/api/admin/users/<user_id>/reject', methods=['POST'])
+@login_required
+@admin_required
+def api_reject_user(user_id):
+    """Reject/Revoke approval for a user account"""
+    try:
+        current_user_id = session.get('user_id')
+        current_user = User.query.get(current_user_id)
+        
+        if not current_user or not current_user.is_admin():
+            return jsonify({
+                'success': False,
+                'message': 'Unauthorized access'
+            }), 403
+        
+        # Get user to reject
+        user = User.query.get(user_id)
+        
+        if not user:
+            return jsonify({
+                'success': False,
+                'message': 'User not found'
+            }), 404
+        
+        # Don't reject admins
+        if user.role in ['super_admin', 'admin']:
+            return jsonify({
+                'success': False,
+                'message': 'Admin users cannot be rejected'
+            }), 400
+        
+        # Check if already not approved
+        if not user.is_approved:
+            return jsonify({
+                'success': False,
+                'message': 'User is already not approved'
+            }), 400
+        
+        # Revoke approval
+        user.is_approved = False
+        user.approved_at = None
+        user.approved_by = None
+        
+        db.session.commit()
+        
+        app.logger.info(f'User approval revoked: {user.email} by {current_user.email}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Approval revoked for "{user.name}". They can no longer login.',
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'Reject User Error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': 'Failed to reject user'
+        }), 500
+
 
 @app.route('/api/auth/logout', methods=['POST'])
 def api_logout():
@@ -862,18 +1036,29 @@ def api_logout():
 def api_check_auth():
     """Check if user is authenticated"""
     if 'user_id' in session:
-        return jsonify({
-            'success': True,
-            'authenticated': True,
-            'user': {
-                'id': session.get('user_id'),
-                'name': session.get('user_name'),
-                'email': session.get('user_email'),
-                'role': session.get('user_role')
-            }
-        })
-    return jsonify({'success': True, 'authenticated': False})
+        # Get fresh user data from database
+        user = User.query.get(session.get('user_id'))
+        if user:
+            return jsonify({
+                'success': True,
+                'authenticated': True,
+                'user': {
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email,
+                    'role': user.role
+                }
+            })
+    
+    # Clear invalid session
+    session.clear()
+    return jsonify({
+        'success': True,
+        'authenticated': False,
+        'user': None
+    })
 
+    
 @app.route('/logout')
 def logout():
     """Logout and redirect to index"""
@@ -1445,27 +1630,61 @@ def api_admin_get_users():
         return jsonify({'success': False, 'message': str(e)})
 
 # ==================== REGISTRATION ROUTE ====================
-
 @app.route('/api/auth/register', methods=['POST'])
 def api_register():
-    """Register a new user with optional phone verification"""
+    """Register a new user - requires admin approval before login"""
     try:
+        # Step 1: Get JSON data
         data = request.get_json()
+        print("=== REGISTRATION DEBUG ===")
+        print(f"Raw data received: {data}")
         
-        name = data.get('name', '').strip()
-        email = data.get('email', '').strip().lower()
-        phone = data.get('phone', '').strip()
-        password = data.get('password', '').strip()
-        phone_verified = data.get('phoneVerified', False)
+        if not data:
+            print("ERROR: No data provided")
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        # Step 2: Extract and clean fields
+        try:
+            name = (data.get('name') or '').strip()
+            print(f"Name: '{name}'")
+        except Exception as e:
+            print(f"Error extracting name: {e}")
+            name = ''
+        
+        try:
+            email = (data.get('email') or '').strip().lower()
+            print(f"Email: '{email}'")
+        except Exception as e:
+            print(f"Error extracting email: {e}")
+            email = ''
+        
+        try:
+            phone = (data.get('phone') or '').strip()
+            print(f"Phone (raw): '{phone}'")
+        except Exception as e:
+            print(f"Error extracting phone: {e}")
+            phone = ''
+        
+        try:
+            password = (data.get('password') or '').strip()
+            print(f"Password length: {len(password)}")
+        except Exception as e:
+            print(f"Error extracting password: {e}")
+            password = ''
         
         # Validation
         if not name:
+            print("Validation failed: Name required")
             return jsonify({
                 'success': False,
                 'message': 'Full name is required'
             }), 400
         
         if not email:
+            print("Validation failed: Email required")
             return jsonify({
                 'success': False,
                 'message': 'Email is required'
@@ -1473,18 +1692,21 @@ def api_register():
         
         # Validate email format
         if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+            print(f"Validation failed: Invalid email format '{email}'")
             return jsonify({
                 'success': False,
                 'message': 'Please enter a valid email address'
             }), 400
         
         if not password:
+            print("Validation failed: Password required")
             return jsonify({
                 'success': False,
                 'message': 'Password is required'
             }), 400
         
         if len(password) < 8:
+            print("Validation failed: Password too short")
             return jsonify({
                 'success': False,
                 'message': 'Password must be at least 8 characters long'
@@ -1493,166 +1715,113 @@ def api_register():
         # Validate phone if provided
         if phone:
             phone = re.sub(r'\D', '', phone)  # Remove non-digits
+            print(f"Phone (cleaned): '{phone}'")
             if len(phone) != 10:
+                print(f"Validation failed: Phone not 10 digits (got {len(phone)})")
                 return jsonify({
                     'success': False,
                     'message': 'Please enter a valid 10-digit phone number'
                 }), 400
         
         # Check if email already exists
-        existing_user = User.get_by_email(email)
-        if existing_user:
-            return jsonify({
-                'success': False,
-                'message': 'An account with this email already exists'
-            }), 409
-        
-        # Check if phone already exists (if provided and verified)
-        if phone and phone_verified:
-            existing_phone = User.query.filter_by(phone=phone).first()
-            if existing_phone:
+        print(f"Checking if email exists: {email}")
+        try:
+            existing_user = User.get_by_email(email)
+            if existing_user:
+                print(f"Email already exists: {email}")
                 return jsonify({
                     'success': False,
-                    'message': 'An account with this phone number already exists'
+                    'message': 'An account with this email already exists'
                 }), 409
+        except Exception as e:
+            print(f"Error checking email: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        # Check if phone already exists (if provided)
+        if phone:
+            print(f"Checking if phone exists: {phone}")
+            try:
+                existing_phone = User.query.filter_by(phone=phone).first()
+                if existing_phone:
+                    print(f"Phone already exists: {phone}")
+                    return jsonify({
+                        'success': False,
+                        'message': 'An account with this phone number already exists'
+                    }), 409
+            except Exception as e:
+                print(f"Error checking phone: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
         
         # Create new user
-        new_user = User(
-            name=name,
-            email=email,
-            phone=phone if phone else None,
-            phone_verified=phone_verified,
-            role='user',
-            is_active=True
-        )
-        new_user.set_password(password)
+        print("Creating new user...")
+        try:
+            new_user = User(
+                name=name,
+                email=email,
+                phone=phone if phone else None,
+                role='user',
+                is_active=True,
+                is_approved=False
+            )
+            print("User object created successfully")
+        except Exception as e:
+            print(f"Error creating User object: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
-        db.session.add(new_user)
-        db.session.commit()
+        # Set password
+        print("Setting password...")
+        try:
+            new_user.set_password(password)
+            print("Password set successfully")
+        except Exception as e:
+            print(f"Error setting password: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
         
-        app.logger.info(f'New user registered: {email} (Phone verified: {phone_verified})')
+        # Save to database
+        print("Adding user to session...")
+        try:
+            db.session.add(new_user)
+            print("Committing to database...")
+            db.session.commit()
+            print(f"User created successfully: {email}")
+        except Exception as e:
+            print(f"Database error: {e}")
+            import traceback
+            traceback.print_exc()
+            db.session.rollback()
+            raise
+        
+        app.logger.info(f'New user registered (pending approval): {email}')
         
         return jsonify({
             'success': True,
-            'message': 'Account created successfully',
+            'message': 'Account created successfully! Please wait for admin approval before logging in.',
             'user': {
                 'id': new_user.id,
                 'name': new_user.name,
                 'email': new_user.email,
                 'phone': new_user.phone,
-                'phone_verified': new_user.phone_verified
+                'is_approved': new_user.is_approved
             }
         }), 201
         
     except Exception as e:
         db.session.rollback()
+        print(f"FATAL ERROR in registration: {e}")
         app.logger.error(f'Registration Error: {str(e)}')
         import traceback
         traceback.print_exc()
         return jsonify({
             'success': False,
-            'message': 'An error occurred during registration. Please try again.'
-        }), 500
-
-# ==================== OTP VERIFICATION ROUTES ====================
-
-@app.route('/api/otp/send', methods=['POST'])
-def api_send_otp():
-    """Send OTP to mobile number using KSP API"""
-    try:
-        data = request.get_json()
-        mobile_number = data.get('mobileNumber', '').strip()
-        
-        app.logger.info(f'OTP Send request for: {mobile_number}')
-        
-        # Use OTP Service
-        result = OTPService.send_otp(mobile_number)
-        
-        app.logger.info(f'OTP Send result: {result}')
-        
-        if result['success']:
-            return jsonify({
-                'success': True,
-                'message': result['message']
-            }), 200
-        else:
-            return jsonify({
-                'success': False,
-                'message': result['message']
-            }), 400
-            
-    except Exception as e:
-        app.logger.error(f'OTP Send Error: {str(e)}')
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'message': 'An error occurred. Please try again.'
-        }), 500
-
-@app.route('/api/otp/verify', methods=['POST'])
-def api_verify_otp():
-    """Verify OTP using KSP API"""
-    try:
-        data = request.get_json()
-        mobile_number = data.get('mobileNumber', '').strip()
-        otp = data.get('otp', '').strip()
-        
-        app.logger.info(f'OTP Verify request for: {mobile_number}, OTP: {otp}')
-        
-        # Use OTP Service
-        result = OTPService.verify_otp(mobile_number, otp)
-        
-        app.logger.info(f'OTP Verify result: {result}')
-        
-        # If verified successfully
-        if result.get('verified'):
-            return jsonify({
-                'success': True,
-                'message': result['message'],
-                'verified': True
-            }), 200
-        
-        # If OTP didn't match but request succeeded
-        elif result['success'] and not result.get('verified'):
-            return jsonify({
-                'success': False,
-                'message': result['message'],
-                'verified': False
-            }), 400
-        
-        # If request failed
-        else:
-            return jsonify({
-                'success': False,
-                'message': result['message'],
-                'verified': False
-            }), 500
-            
-    except Exception as e:
-        app.logger.error(f'OTP Verify Error: {str(e)}')
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'message': 'An error occurred. Please try again.'
-        }), 500
-
-
-@app.route('/api/otp/status/<phone>', methods=['GET'])
-def api_otp_status(phone):
-    """Get OTP status for a phone number"""
-    try:
-        status = OTPService.get_status(phone)
-        return jsonify({
-            'success': True,
-            'status': status
-        }), 200
-    except Exception as e:
-        app.logger.error(f'OTP Status Error: {str(e)}')
-        return jsonify({
-            'success': False,
-            'message': str(e)
+            'message': f'Registration error: {str(e)}'  # ✅ Show actual error
         }), 500
 
 @app.route('/api/admin/users', methods=['POST'])
@@ -3398,6 +3567,35 @@ def save_draft():
 # Initialize database tables
 with app.app_context():
     db.create_all()
+
+
+# Initialize database tables
+with app.app_context():
+    try:
+        db.create_all()
+        print("✅ Database tables created/verified successfully!")
+        
+        # Check if tables exist
+        inspector = db.inspect(db.engine)
+        tables = inspector.get_table_names()
+        print(f"📋 Existing tables: {tables}")
+        
+        # Check User table columns
+        if 'users' in tables:
+            columns = [col['name'] for col in inspector.get_columns('users')]
+            print(f"👤 User table columns: {columns}")
+            
+            # Verify required columns exist
+            required_columns = ['id', 'name', 'email', 'password_hash', 'is_approved', 'is_active']
+            missing = [col for col in required_columns if col not in columns]
+            if missing:
+                print(f"⚠️  WARNING: Missing columns in users table: {missing}")
+            else:
+                print("✅ All required columns exist in users table")
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        import traceback
+        traceback.print_exc()
 
 # For local development
 if __name__ == '__main__':
