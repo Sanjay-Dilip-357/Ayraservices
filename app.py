@@ -1000,7 +1000,44 @@ def api_submit_for_approval(draft_id):
         app.logger.error(f'Error submitting for approval: {str(e)}')
         return jsonify({'success': False, 'message': str(e)}), 500
 
-
+@app.route('/api/drafts/<draft_id>/cd-preview', methods=['GET'])
+@login_required
+def api_get_user_cd_preview(draft_id):
+    """Get CD document preview for user's own draft"""
+    try:
+        user_id = session.get('user_id')
+        draft = Draft.query.filter_by(id=draft_id, user_id=user_id).first()
+        
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'}), 404
+        
+        preview_data = draft.preview_data or {}
+        template_folder = preview_data.get('template_folder')
+        
+        if not template_folder:
+            template_config = TEMPLATE_CONFIG.get(draft.template_type, {})
+            folder_type = preview_data.get('folder_type', 'main')
+            
+            if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
+                template_folder = template_config['unmarried_subfolder']
+            else:
+                template_folder = template_config.get('folder', '')
+        
+        if not template_folder:
+            return jsonify({'success': False, 'message': 'Template folder not configured'}), 400
+        
+        cd_content = get_cd_document_content(template_folder, draft.replacements or {})
+        
+        return jsonify({
+            'success': True,
+            'cd_content': cd_content,
+            'document_name': draft.old_name or 'Unnamed'
+        })
+    
+    except Exception as e:
+        app.logger.error(f'Error getting CD preview: {str(e)}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+    
 # ==================== CD DOCUMENT PREVIEW (ADMIN ONLY) ====================
 @app.route('/api/admin/documents/<doc_id>/cd-preview', methods=['GET'])
 @admin_required
@@ -1248,6 +1285,49 @@ def get_cd_document_content(template_folder, replacements):
                 <small class="text-muted">{str(e)}</small>
             </div>
         """
+
+@app.route('/api/drafts/<doc_id>/cd-preview')
+def get_draft_cd_preview(doc_id):
+    """Get CD document preview with filled values for admin"""
+    try:
+        draft = Draft.query.get(doc_id)
+        
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'}), 404
+        
+        preview_data = draft.preview_data or {}
+        template_folder = preview_data.get('template_folder')
+        
+        if not template_folder:
+            # Determine folder from template type
+            template_config = TEMPLATE_CONFIG.get(draft.template_type, {})
+            folder_type = preview_data.get('folder_type', 'main')
+            
+            if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
+                template_folder = template_config['unmarried_subfolder']
+            else:
+                template_folder = template_config.get('folder', '')
+        
+        if not template_folder:
+            return jsonify({
+                'success': False, 
+                'message': 'Template folder not configured'
+            }), 400
+        
+        # Get CD content with replacements
+        cd_content = get_cd_document_content(template_folder, draft.replacements or {})
+        
+        return jsonify({
+            'success': True,
+            'cd_content': cd_content,
+            'document_name': draft.old_name or 'Unnamed'
+        })
+    
+    except Exception as e:
+        app.logger.error(f'Error getting CD preview: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==================== USER DASHBOARD ROUTES ====================
 
