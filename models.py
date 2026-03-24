@@ -17,6 +17,11 @@ class User(db.Model):
     password_hash = db.Column(db.String(256), nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # 'super_admin', 'admin', or 'user'
     is_active = db.Column(db.Boolean, default=True)
+
+    is_approved = db.Column(db.Boolean, default=False)  # Requires admin approval
+    approved_at = db.Column(db.DateTime)
+    approved_by = db.Column(db.String(36)) 
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.String(36))  # ID of the user who created this account
     last_login = db.Column(db.DateTime)
@@ -52,10 +57,13 @@ class User(db.Model):
             'role': self.role,
             'role_display': self.get_role_display(),
             'is_active': self.is_active,
+            'is_approved': self.is_approved,  # Add to dict
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'created_by': self.created_by,
             'last_login': self.last_login.isoformat() if self.last_login else None
         }
+
     
     def get_role_display(self):
         role_names = {
