@@ -30,7 +30,6 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'max_overflow': 20
 }
 
-
 # Initialize database
 init_db(app)
 
@@ -2823,24 +2822,33 @@ def get_next_available_phone(exclude_phones=None):
     if not all_phones:
         return None, "No phone numbers found in CSV"
     
-    # Get used phones from database
-    used_phones = {pt.phone for pt in PhoneTracking.query.filter_by(is_used=True).all()}
+    # Get used phones from database (phones that have been saved in drafts/generated)
+    used_phones_db = {pt.phone for pt in PhoneTracking.query.filter_by(is_used=True).all()}
     
-    # Get session reserved phones (phones assigned in current form session)
+    # Get session reserved phones (phones assigned in current form session but not yet saved)
     session_reserved = set(get_session_reserved_phones())
     
-    # Get phones to exclude (already selected in the current form)
-    exclude_set = set(exclude_phones) if exclude_phones else set()
+    # Get phones to exclude (already selected in the current form - passed from frontend)
+    exclude_set = set()
+    if exclude_phones:
+        for phone in exclude_phones:
+            if phone and isinstance(phone, str):
+                clean_phone = re.sub(r'\D', '', phone.strip())
+                if len(clean_phone) == 10:
+                    exclude_set.add(clean_phone)
     
     # Combine all excluded phones
-    all_excluded = used_phones | session_reserved | exclude_set
+    all_excluded = used_phones_db | session_reserved | exclude_set
+    
+    app.logger.debug(f'Phone exclusion - DB used: {len(used_phones_db)}, Session: {len(session_reserved)}, Exclude param: {len(exclude_set)}, Total excluded: {len(all_excluded)}')
     
     # Find available phones
     available_phones = [p for p in all_phones if p not in all_excluded]
     
-    # If no phones available, reset the database tracking and try again
+    # If no phones available, check if we can reset
     if not available_phones:
         # Check if there are phones available after excluding only session and form phones
+        # (i.e., reset the database tracking)
         potential_phones = [p for p in all_phones if p not in session_reserved and p not in exclude_set]
         
         if potential_phones:
@@ -2848,7 +2856,7 @@ def get_next_available_phone(exclude_phones=None):
             PhoneTracking.query.update({PhoneTracking.is_used: False})
             db.session.commit()
             available_phones = potential_phones
-            print(f"Phone tracking reset. {len(available_phones)} phones now available.")
+            app.logger.info(f'Phone tracking reset. {len(available_phones)} phones now available.')
         else:
             # All phones are either in session or excluded - cannot proceed
             return None, "All phone numbers are in use. Please complete current form or start fresh."
@@ -2862,25 +2870,36 @@ def get_next_available_phone(exclude_phones=None):
     # Add to session reserved (so it won't be assigned again in this session)
     add_session_reserved_phone(next_phone)
     
+    app.logger.debug(f'Assigned phone: {next_phone}, Remaining available: {len(available_phones) - 1}')
+    
     return next_phone, None
 
 def mark_phones_as_used(phone_numbers):
+    """Mark phone numbers as used in the database"""
     if not phone_numbers:
-        return
+        return 0
     
+    marked_count = 0
     for phone in phone_numbers:
         if phone and isinstance(phone, str):
             phone = re.sub(r'\D', '', phone.strip())
             if len(phone) == 10:
                 existing = PhoneTracking.query.filter_by(phone=phone).first()
                 if existing:
-                    existing.is_used = True
-                    existing.used_at = datetime.utcnow()
+                    if not existing.is_used:
+                        existing.is_used = True
+                        existing.used_at = datetime.utcnow()
+                        marked_count += 1
                 else:
                     pt = PhoneTracking(phone=phone, is_used=True, used_at=datetime.utcnow())
                     db.session.add(pt)
+                    marked_count += 1
     
-    db.session.commit()
+    if marked_count > 0:
+        db.session.commit()
+        app.logger.info(f'Marked {marked_count} phones as used')
+    
+    return marked_count
 
 def release_session_phone(phone):
     reserved = get_session_reserved_phones()
@@ -3447,13 +3466,11 @@ def api_save_draft_from_preview():
             return jsonify({'success': False, 'message': 'No data to save'})
         
         # CRITICAL: Ensure WIFE_OF and SPOUSE_NAME1 are set (even if empty)
-        # This ensures placeholders get replaced with empty strings
         if 'WIFE_OF' not in replacements:
             replacements['WIFE_OF'] = ''
         if 'SPOUSE_NAME1' not in replacements:
             replacements['SPOUSE_NAME1'] = ''
         if 'HE_SHE' not in replacements:
-            # Determine from gender or relation
             gender = replacements.get('GENDER_UPDATE', '').upper()
             if gender == 'MALE':
                 replacements['HE_SHE'] = 'he'
@@ -3476,6 +3493,35 @@ def api_save_draft_from_preview():
         else:
             preview_data['template_folder'] = template_config.get('folder', '')
         
+        # ✅ FIX: Collect and mark phones as used BEFORE saving
+        phones_to_mark = []
+        
+        # Get phones from replacements
+        phone_fields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2']
+        for field in phone_fields:
+            phone = replacements.get(field, '')
+            if phone and isinstance(phone, str):
+                phone = re.sub(r'\D', '', phone.strip())
+                if len(phone) == 10:
+                    phones_to_mark.append(phone)
+        
+        # Also check session preview_data for phones_used
+        if 'preview_data' in session:
+            session_phones = session['preview_data'].get('phones_used', [])
+            for phone in session_phones:
+                if phone and isinstance(phone, str):
+                    phone = re.sub(r'\D', '', phone.strip())
+                    if len(phone) == 10 and phone not in phones_to_mark:
+                        phones_to_mark.append(phone)
+        
+        # ✅ Mark phones as used in database
+        if phones_to_mark:
+            mark_phones_as_used(phones_to_mark)
+            app.logger.info(f'Marked phones as used: {phones_to_mark}')
+        
+        # Store phones_used in preview_data for reference
+        preview_data['phones_used'] = phones_to_mark
+        
         # Create new draft
         new_draft = Draft(
             user_id=user_id,
@@ -3490,22 +3536,22 @@ def api_save_draft_from_preview():
         db.session.add(new_draft)
         db.session.commit()
         
-        # Clear session preview data
+        # Clear session preview data and reserved phones
         session.pop('preview_data', None)
         clear_session_reserved_phones()
         
         return jsonify({
             'success': True,
             'message': 'Draft saved successfully',
-            'draft_id': new_draft.id
+            'draft_id': new_draft.id,
+            'phones_marked': len(phones_to_mark)
         })
     
     except Exception as e:
         db.session.rollback()
         import traceback
         traceback.print_exc()
-        return jsonify({'success': False, 'message': str(e)})
-    
+        return jsonify({'success': False, 'message': str(e)}) 
 
 @app.route('/api/dashboard/stats')
 @login_required
@@ -3538,6 +3584,12 @@ def save_draft():
         
         template_config = TEMPLATE_CONFIG.get(preview_data['template_type'], {})
         
+        # ✅ FIX: Mark phones as used
+        phones_used = preview_data.get('phones_used', [])
+        if phones_used:
+            mark_phones_as_used(phones_used)
+            app.logger.info(f'Marked phones as used from save_draft: {phones_used}')
+        
         new_draft = Draft(
             user_id=user_id,
             template_type=preview_data['template_type'],
@@ -3563,7 +3615,8 @@ def save_draft():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
-
+    
+    
 # Initialize database tables
 with app.app_context():
     db.create_all()
