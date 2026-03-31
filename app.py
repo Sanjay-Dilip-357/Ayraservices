@@ -2781,10 +2781,10 @@ def api_generate_single(draft_id):
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)})
 
-# ==================== PHONE NUMBER MANAGEMENT ====================
+# ==================== PHONE NUMBER MANAGEMENT (SIMPLE - NO SESSION) ====================
 
 def load_phone_numbers_from_csv():
-    """Load phone numbers from CSV"""
+    """Load all phone numbers from CSV file"""
     phone_numbers = []
     if os.path.exists(PHONE_CSV_FILE):
         try:
@@ -2796,95 +2796,89 @@ def load_phone_numbers_from_csv():
                         if len(phone) == 10:
                             phone_numbers.append(phone)
         except Exception as e:
-            print(f"Error loading phones: {e}")
+            app.logger.error(f"Error loading phones from CSV: {e}")
     return phone_numbers
 
-def get_session_reserved_phones():
-    if 'reserved_phones' not in session:
-        session['reserved_phones'] = []
-    return session['reserved_phones']
 
-def add_session_reserved_phone(phone):
-    reserved = get_session_reserved_phones()
-    if phone not in reserved:
-        reserved.append(phone)
-        session['reserved_phones'] = reserved
-        session.modified = True
-
-def clear_session_reserved_phones():
-    session['reserved_phones'] = []
-    session.modified = True
-
-def get_next_available_phone(exclude_phones=None):
-    """Get next available phone number from CSV, ensuring no repetition until all are used"""
+def get_available_phones():
+    """Get list of phones NOT marked as used in database"""
     all_phones = load_phone_numbers_from_csv()
     
     if not all_phones:
-        return None, "No phone numbers found in CSV"
+        return []
     
-    # Get used phones from database (phones that have been saved in drafts/generated)
-    used_phones_db = {pt.phone for pt in PhoneTracking.query.filter_by(is_used=True).all()}
+    # Get used phones from database
+    used_phones = {pt.phone for pt in PhoneTracking.query.filter_by(is_used=True).all()}
     
-    # Get session reserved phones (phones assigned in current form session but not yet saved)
-    session_reserved = set(get_session_reserved_phones())
+    # Return only available phones
+    available = [p for p in all_phones if p not in used_phones]
     
-    # Get phones to exclude (already selected in the current form - passed from frontend)
-    exclude_set = set()
-    if exclude_phones:
-        for phone in exclude_phones:
+    return available
+
+
+def get_random_phone(exclude_list=None):
+    """
+    Get a random available phone number.
+    
+    Args:
+        exclude_list: List of phones to exclude (phones already selected in current form)
+    
+    Returns:
+        tuple: (phone_number, error_message)
+    """
+    available_phones = get_available_phones()
+    
+    if not available_phones:
+        # Check if we need to restart cycle
+        all_phones = load_phone_numbers_from_csv()
+        if all_phones:
+            # Reset all phones - restart cycle
+            app.logger.info('🔄 All phones used - RESTARTING CYCLE')
+            PhoneTracking.query.update({'is_used': False, 'used_at': None})
+            db.session.commit()
+            available_phones = all_phones
+        else:
+            return None, "No phone numbers found in CSV"
+    
+    # Exclude phones already selected in current form
+    if exclude_list:
+        exclude_set = set()
+        for phone in exclude_list:
             if phone and isinstance(phone, str):
                 clean_phone = re.sub(r'\D', '', phone.strip())
                 if len(clean_phone) == 10:
                     exclude_set.add(clean_phone)
-    
-    # Combine all excluded phones
-    all_excluded = used_phones_db | session_reserved | exclude_set
-    
-    app.logger.debug(f'Phone exclusion - DB used: {len(used_phones_db)}, Session: {len(session_reserved)}, Exclude param: {len(exclude_set)}, Total excluded: {len(all_excluded)}')
-    
-    # Find available phones
-    available_phones = [p for p in all_phones if p not in all_excluded]
-    
-    # If no phones available, check if we can reset
-    if not available_phones:
-        # Check if there are phones available after excluding only session and form phones
-        # (i.e., reset the database tracking)
-        potential_phones = [p for p in all_phones if p not in session_reserved and p not in exclude_set]
         
-        if potential_phones:
-            # Reset database tracking - all phones can be used again
-            PhoneTracking.query.update({PhoneTracking.is_used: False})
-            db.session.commit()
-            available_phones = potential_phones
-            app.logger.info(f'Phone tracking reset. {len(available_phones)} phones now available.')
-        else:
-            # All phones are either in session or excluded - cannot proceed
-            return None, "All phone numbers are in use. Please complete current form or start fresh."
+        available_phones = [p for p in available_phones if p not in exclude_set]
     
     if not available_phones:
-        return None, "No phone numbers available"
+        return None, "No available phone numbers (all excluded)"
     
-    # Get the next phone (first available)
-    next_phone = available_phones[0]
+    # Pick random phone
+    selected_phone = random.choice(available_phones)
     
-    # Add to session reserved (so it won't be assigned again in this session)
-    add_session_reserved_phone(next_phone)
+    app.logger.debug(f'📱 Random phone selected: {selected_phone}')
     
-    app.logger.debug(f'Assigned phone: {next_phone}, Remaining available: {len(available_phones) - 1}')
-    
-    return next_phone, None
+    return selected_phone, None
+
 
 def mark_phones_as_used(phone_numbers):
-    """Mark phone numbers as used in the database"""
+    """
+    Mark phone numbers as PERMANENTLY USED in database.
+    Called ONLY when draft is saved.
+    """
     if not phone_numbers:
         return 0
     
     marked_count = 0
+    
     for phone in phone_numbers:
         if phone and isinstance(phone, str):
             phone = re.sub(r'\D', '', phone.strip())
+            
             if len(phone) == 10:
                 existing = PhoneTracking.query.filter_by(phone=phone).first()
+                
                 if existing:
                     if not existing.is_used:
                         existing.is_used = True
@@ -2897,72 +2891,79 @@ def mark_phones_as_used(phone_numbers):
     
     if marked_count > 0:
         db.session.commit()
-        app.logger.info(f'Marked {marked_count} phones as used')
+        app.logger.info(f'🔒 Marked {marked_count} phones as USED: {phone_numbers}')
     
     return marked_count
 
-def release_session_phone(phone):
-    reserved = get_session_reserved_phones()
-    if phone in reserved:
-        reserved.remove(phone)
-        session['reserved_phones'] = reserved
-        session.modified = True
 
 def get_phone_stats():
+    """Get phone number statistics"""
     all_phones = load_phone_numbers_from_csv()
     used_count = PhoneTracking.query.filter_by(is_used=True).count()
-    session_reserved = len(get_session_reserved_phones())
-    available = len(all_phones) - used_count - session_reserved
+    available = len(all_phones) - used_count
     
     return {
         'total': len(all_phones),
         'used': used_count,
-        'reserved': session_reserved,
         'available': max(0, available)
     }
 
+
+# ==================== PHONE API ROUTES ====================
+
 @app.route('/api/phone/next', methods=['POST'])
 def api_get_next_phone():
-    data = request.get_json() or {}
-    exclude_phones = data.get('exclude', [])
+    """Get next random available phone number"""
+    try:
+        data = request.get_json() or {}
+        exclude_list = data.get('exclude', [])
+        
+        phone, error = get_random_phone(exclude_list)
+        
+        if error:
+            return jsonify({
+                'success': False,
+                'message': error,
+                'stats': get_phone_stats()
+            })
+        
+        return jsonify({
+            'success': True,
+            'phone': phone,
+            'stats': get_phone_stats()
+        })
     
-    phone, error = get_next_available_phone(exclude_phones)
-    
-    if error:
-        return jsonify({'success': False, 'message': error, 'stats': get_phone_stats()})
-    
-    return jsonify({'success': True, 'phone': phone, 'stats': get_phone_stats()})
+    except Exception as e:
+        app.logger.error(f'Error getting phone: {str(e)}')
+        return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/api/phone/release', methods=['POST'])
-def api_release_phone():
-    phone = request.json.get('phone', '')
-    phone = re.sub(r'\D', '', phone.strip())
-    
-    if len(phone) == 10:
-        release_session_phone(phone)
-    
-    return jsonify({'success': True, 'message': 'Phone released', 'stats': get_phone_stats()})
 
 @app.route('/api/phone/stats')
 def api_phone_stats():
+    """Get phone statistics"""
     return jsonify({'success': True, 'stats': get_phone_stats()})
 
-@app.route('/api/phone/reset', methods=['POST'])
-def api_reset_phone_tracking():
-    PhoneTracking.query.update({PhoneTracking.is_used: False})
-    db.session.commit()
-    clear_session_reserved_phones()
-    return jsonify({'success': True, 'message': 'Phone tracking reset', 'stats': get_phone_stats()})
 
-@app.route('/api/phone/clear_session', methods=['POST'])
-@login_required
-def api_clear_session_phones():
-    """Clear session reserved phones"""
+@app.route('/api/phone/reset', methods=['POST'])
+@admin_required
+def api_reset_phone_tracking():
+    """Admin: Reset all phone tracking (restart cycle)"""
     try:
-        clear_session_reserved_phones()
-        return jsonify({'success': True, 'message': 'Session phones cleared', 'stats': get_phone_stats()})
+        PhoneTracking.query.update({'is_used': False, 'used_at': None})
+        db.session.commit()
+        
+        app.logger.info('🔄 Admin reset all phone tracking')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Phone tracking reset',
+            'stats': get_phone_stats()
+        })
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -3093,8 +3094,6 @@ def index():
 @app.route('/namechangeservice')
 @login_required
 def namechangeservice():
-    clear_session_reserved_phones()
-    
     template_info = get_all_template_info()
     phone_stats = get_phone_stats()
     
@@ -3369,7 +3368,6 @@ def generate_document():
         
         phones_used = preview_data.get('phones_used', [])
         mark_phones_as_used(phones_used)
-        clear_session_reserved_phones()
         
         # Determine the folder name source based on template type
         # CRITICAL FIX: For minor template, use Father/Mother Name
@@ -3440,18 +3438,17 @@ def generate_document():
 @app.route('/api/drafts/save', methods=['POST'])
 @login_required
 def api_save_draft_from_preview():
-    """Save a new draft from preview data or direct submission"""
+    """Save a new draft and mark phones as used"""
     try:
         user_id = session.get('user_id')
         data = request.json
         
-        # Get data from request
         replacements = data.get('replacements', {})
         template_type = data.get('template_type', '')
         preview_data = data.get('preview_data', {})
         folder_type = data.get('folder_type', 'main')
         
-        # If we have session preview_data and no replacements from request, use session data
+        # If we have session preview_data, use it
         if 'preview_data' in session and not replacements:
             session_preview = session['preview_data']
             replacements = session_preview.get('replacements', {})
@@ -3465,64 +3462,42 @@ def api_save_draft_from_preview():
         if not replacements:
             return jsonify({'success': False, 'message': 'No data to save'})
         
-        # CRITICAL: Ensure WIFE_OF and SPOUSE_NAME1 are set (even if empty)
+        # Ensure critical fields exist
         if 'WIFE_OF' not in replacements:
             replacements['WIFE_OF'] = ''
         if 'SPOUSE_NAME1' not in replacements:
             replacements['SPOUSE_NAME1'] = ''
         if 'HE_SHE' not in replacements:
             gender = replacements.get('GENDER_UPDATE', '').upper()
-            if gender == 'MALE':
-                replacements['HE_SHE'] = 'he'
-            elif gender == 'FEMALE':
-                replacements['HE_SHE'] = 'she'
-            else:
-                replacements['HE_SHE'] = 'he/she'
+            replacements['HE_SHE'] = 'he' if gender == 'MALE' else 'she' if gender == 'FEMALE' else 'he/she'
         
+        # ✅ Extract phones to mark as PERMANENTLY USED
+        phones_to_mark = []
+        phone_fields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2']
+        
+        for field in phone_fields:
+            phone = replacements.get(field, '')
+            if phone and isinstance(phone, str):
+                phone = re.sub(r'\D', '', phone.strip())
+                if len(phone) == 10 and phone not in phones_to_mark:
+                    phones_to_mark.append(phone)
+        
+        # Setup preview_data
         template_config = TEMPLATE_CONFIG.get(template_type, {})
         
-        # Update preview_data with folder_type
         if not preview_data:
             preview_data = {}
+        
         preview_data['folder_type'] = folder_type
         preview_data['replacements'] = replacements
+        preview_data['phones_used'] = phones_to_mark
         
-        # Determine template folder
         if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
             preview_data['template_folder'] = template_config['unmarried_subfolder']
         else:
             preview_data['template_folder'] = template_config.get('folder', '')
         
-        # ✅ FIX: Collect and mark phones as used BEFORE saving
-        phones_to_mark = []
-        
-        # Get phones from replacements
-        phone_fields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2']
-        for field in phone_fields:
-            phone = replacements.get(field, '')
-            if phone and isinstance(phone, str):
-                phone = re.sub(r'\D', '', phone.strip())
-                if len(phone) == 10:
-                    phones_to_mark.append(phone)
-        
-        # Also check session preview_data for phones_used
-        if 'preview_data' in session:
-            session_phones = session['preview_data'].get('phones_used', [])
-            for phone in session_phones:
-                if phone and isinstance(phone, str):
-                    phone = re.sub(r'\D', '', phone.strip())
-                    if len(phone) == 10 and phone not in phones_to_mark:
-                        phones_to_mark.append(phone)
-        
-        # ✅ Mark phones as used in database
-        if phones_to_mark:
-            mark_phones_as_used(phones_to_mark)
-            app.logger.info(f'Marked phones as used: {phones_to_mark}')
-        
-        # Store phones_used in preview_data for reference
-        preview_data['phones_used'] = phones_to_mark
-        
-        # Create new draft
+        # Create draft
         new_draft = Draft(
             user_id=user_id,
             template_type=template_type,
@@ -3536,22 +3511,28 @@ def api_save_draft_from_preview():
         db.session.add(new_draft)
         db.session.commit()
         
-        # Clear session preview data and reserved phones
+        # ✅ NOW mark phones as permanently used (AFTER draft is saved)
+        marked_count = 0
+        if phones_to_mark:
+            marked_count = mark_phones_as_used(phones_to_mark)
+        
+        # Clear session preview data
         session.pop('preview_data', None)
-        clear_session_reserved_phones()
         
         return jsonify({
             'success': True,
             'message': 'Draft saved successfully',
             'draft_id': new_draft.id,
-            'phones_marked': len(phones_to_mark)
+            'phones_marked': marked_count
         })
     
     except Exception as e:
         db.session.rollback()
+        app.logger.error(f'Save draft error: {str(e)}')
         import traceback
         traceback.print_exc()
-        return jsonify({'success': False, 'message': str(e)}) 
+        return jsonify({'success': False, 'message': str(e)}), 500
+    
 
 @app.route('/api/dashboard/stats')
 @login_required
@@ -3604,7 +3585,6 @@ def save_draft():
         db.session.commit()
         
         session.pop('preview_data', None)
-        clear_session_reserved_phones()
         
         return jsonify({
             'success': True,
@@ -3615,7 +3595,258 @@ def save_draft():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+
+# ==================== PUBLISH/UNPUBLISH TOGGLE ====================
+@app.route('/api/admin/documents/<doc_id>/toggle-publish', methods=['POST'])
+@admin_required
+def api_toggle_publish(doc_id):
+    """Toggle document published status"""
+    try:
+        draft = Draft.query.get(doc_id)
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'})
+        
+        # Toggle published status
+        draft.published = not draft.published
+        draft.published_at = datetime.utcnow() if draft.published else None
+        draft.modified_at = datetime.utcnow()
+        
+        db.session.commit()
+        
+        status_text = 'Published' if draft.published else 'Unpublished'
+        
+        return jsonify({
+            'success': True,
+            'message': f'Document {status_text.lower()} successfully',
+            'published': draft.published,
+            'published_at': draft.published_at.isoformat() if draft.published_at else None
+        })
     
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f'Toggle publish error: {str(e)}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== PRINT PREVIEW - ALL DOCUMENTS ====================
+@app.route('/api/admin/documents/<doc_id>/print-preview', methods=['GET'])
+@admin_required
+def api_print_preview(doc_id):
+    """Get print preview for all documents"""
+    try:
+        draft = Draft.query.get(doc_id)
+        
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'})
+        
+        preview_data = draft.preview_data or {}
+        template_folder = preview_data.get('template_folder')
+        
+        if not template_folder:
+            template_config = TEMPLATE_CONFIG.get(draft.template_type, {})
+            folder_type = preview_data.get('folder_type', 'main')
+            
+            if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
+                template_folder = template_config['unmarried_subfolder']
+            else:
+                template_folder = template_config.get('folder', '')
+        
+        if not template_folder:
+            return jsonify({'success': False, 'message': 'Template folder not configured'}), 400
+        
+        template_folder_path = Path(template_folder)
+        replacements = draft.replacements or {}
+        
+        documents = []
+        
+        # Get all .docx files
+        if template_folder_path.exists():
+            for file in sorted(template_folder_path.iterdir()):
+                if file.is_file() and file.suffix.lower() == '.docx' and not file.name.startswith('~$'):
+                    try:
+                        doc = Document(str(file))
+                        
+                        # Build HTML content
+                        html_content = []
+                        
+                        for para in doc.paragraphs:
+                            text = para.text
+                            
+                            # Replace placeholders
+                            for key, value in replacements.items():
+                                if value is not None:
+                                    text = text.replace(key, str(value))
+                                else:
+                                    text = text.replace(key, '')
+                            
+                            # Clean up extra spaces
+                            text = re.sub(r'\s+', ' ', text).strip()
+                            
+                            if text:
+                                html_content.append(f'<p>{text}</p>')
+                        
+                        # Process tables
+                        for table in doc.tables:
+                            html_content.append('<table class="table table-bordered">')
+                            for row in table.rows:
+                                html_content.append('<tr>')
+                                for cell in row.cells:
+                                    cell_text = cell.text
+                                    for key, value in replacements.items():
+                                        if value is not None:
+                                            cell_text = cell_text.replace(key, str(value))
+                                        else:
+                                            cell_text = cell_text.replace(key, '')
+                                    cell_text = re.sub(r'\s+', ' ', cell_text).strip()
+                                    html_content.append(f'<td>{cell_text}</td>')
+                                html_content.append('</tr>')
+                            html_content.append('</table>')
+                        
+                        # Determine print count (Witness.docx prints twice)
+                        print_count = 2 if file.stem.upper() == 'WITNESS' else 1
+                        
+                        documents.append({
+                            'filename': file.name,
+                            'content': ''.join(html_content),
+                            'print_count': print_count
+                        })
+                    
+                    except Exception as file_error:
+                        app.logger.error(f'Error processing {file.name}: {file_error}')
+                        continue
+        
+        return jsonify({
+            'success': True,
+            'documents': documents,
+            'document_name': draft.old_name or 'Unnamed'
+        })
+    
+    except Exception as e:
+        app.logger.error(f'Print preview error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== DOWNLOAD ALL FILES ====================
+@app.route('/api/admin/documents/<doc_id>/download-all', methods=['GET'])
+@admin_required
+def api_download_all_files(doc_id):
+    """Download all document files as ZIP"""
+    try:
+        draft = Draft.query.get(doc_id)
+        
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'}), 404
+        
+        # Use existing generate_documents_to_memory function
+        result = generate_documents_to_memory(draft)
+        
+        if not result['success']:
+            return jsonify({'success': False, 'message': result.get('message', 'Generation failed')}), 500
+        
+        zip_buffer = result['zip_buffer']
+        zip_buffer.seek(0)
+        
+        filename = f"{draft.old_name.replace(' ', '_')}_All_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=filename
+        )
+    
+    except Exception as e:
+        app.logger.error(f'Download all error: {str(e)}')
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ==================== DOWNLOAD ONLY CD.DOCX ====================
+@app.route('/api/admin/documents/<doc_id>/download-cd', methods=['GET'])
+@admin_required
+def api_download_cd_only(doc_id):
+    """Download only CD.docx file"""
+    try:
+        draft = Draft.query.get(doc_id)
+        
+        if not draft:
+            return jsonify({'success': False, 'message': 'Document not found'}), 404
+        
+        preview_data = draft.preview_data or {}
+        template_folder = preview_data.get('template_folder')
+        
+        if not template_folder:
+            template_config = TEMPLATE_CONFIG.get(draft.template_type, {})
+            folder_type = preview_data.get('folder_type', 'main')
+            
+            if folder_type == 'unmarried' and 'unmarried_subfolder' in template_config:
+                template_folder = template_config['unmarried_subfolder']
+            else:
+                template_folder = template_config.get('folder', '')
+        
+        if not template_folder:
+            return jsonify({'success': False, 'message': 'Template folder not configured'}), 400
+        
+        template_folder_path = Path(template_folder)
+        
+        # Find CD.docx file
+        cd_file = None
+        if template_folder_path.exists():
+            for file in template_folder_path.iterdir():
+                if file.is_file() and file.suffix.lower() == '.docx':
+                    if file.stem.upper() == 'CD' and not file.name.startswith('~$'):
+                        cd_file = file
+                        break
+        
+        if not cd_file:
+            return jsonify({'success': False, 'message': 'CD.docx not found'}), 404
+        
+        # Process CD.docx with replacements
+        doc = Document(str(cd_file))
+        replacements = draft.replacements or {}
+        
+        # Replace in paragraphs
+        for paragraph in doc.paragraphs:
+            replace_text_in_paragraph(paragraph, replacements)
+        
+        # Replace in tables
+        if doc.tables:
+            replace_text_in_tables(doc.tables, replacements)
+        
+        # Replace in headers/footers
+        for section in doc.sections:
+            for paragraph in section.header.paragraphs:
+                replace_text_in_paragraph(paragraph, replacements)
+            if section.header.tables:
+                replace_text_in_tables(section.header.tables, replacements)
+            
+            for paragraph in section.footer.paragraphs:
+                replace_text_in_paragraph(paragraph, replacements)
+            if section.footer.tables:
+                replace_text_in_tables(section.footer.tables, replacements)
+        
+        # Save to memory buffer
+        doc_buffer = BytesIO()
+        doc.save(doc_buffer)
+        doc_buffer.seek(0)
+        
+        # Create filename
+        safe_name = draft.old_name.replace(' ', '_') if draft.old_name else 'CD'
+        filename = f"CD_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        return send_file(
+            doc_buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            as_attachment=True,
+            download_name=filename
+        )
+    
+    except Exception as e:
+        app.logger.error(f'Download CD error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
     
 # Initialize database tables
 with app.app_context():
