@@ -8,8 +8,7 @@ var lockedFields = {};
 var monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
 var aliasCounters = { 'major': 0, 'minor': 0, 'religion': 0 };
 var phoneStats = { total: 0, used: 0, available: 0, reserved: 0 };
-var currentFormPhones = {};
-
+var currentFormPhones = {}; 
 // Field Labels
 var fieldLabels = {
     'OLD_NAME': 'Old Name', 
@@ -94,7 +93,8 @@ function updateTime() {
     }
 }
 
-// ==================== PHONE NUMBER MANAGEMENT ====================
+// ==================== PHONE NUMBER MANAGEMENT (FIXED) ====================
+
 function loadPhoneStats() {
     fetch('/api/phone/stats')
         .then(function(r) { return r.json(); })
@@ -128,11 +128,21 @@ function getNextPhone(inputId) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
     }
 
+    // ✅ FIX: Build comprehensive exclude list
     var excludePhones = [];
-    document.querySelectorAll('.phone-input').forEach(function(inp) {
+    
+    // 1. Add all phones from currentFormPhones tracking object
+    Object.keys(currentFormPhones).forEach(function(key) {
+        if (key !== inputId && currentFormPhones[key]) {
+            excludePhones.push(currentFormPhones[key]);
+        }
+    });
+    
+    // 2. Add all phones from visible phone inputs (backup check)
+    document.querySelectorAll('.phone-input:not(:disabled)').forEach(function(inp) {
         if (inp.id !== inputId) {
             var val = inp.value.trim();
-            if (val && val.length === 10) {
+            if (val && val.length === 10 && excludePhones.indexOf(val) === -1) {
                 excludePhones.push(val);
             }
         }
@@ -145,6 +155,9 @@ function getNextPhone(inputId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phone: oldValue })
         }).then(function(r) { return r.json(); }).catch(function() {});
+        
+        // ✅ Remove from tracking
+        delete currentFormPhones[inputId];
     }
 
     releasePromise.then(function() {
@@ -163,6 +176,7 @@ function getNextPhone(inputId) {
                 phoneInput.classList.remove('is-invalid');
                 phoneInput.classList.add('is-valid');
 
+                // ✅ FIX: Track this phone assignment
                 currentFormPhones[inputId] = data.phone;
 
                 if (indicator) {
@@ -213,35 +227,40 @@ function clearSessionPhones() {
         .then(function(data) {
             if (data.success) {
                 phoneStats = data.stats || phoneStats;
-                currentFormPhones = {};
+                currentFormPhones = {}; // ✅ Clear tracking
             }
             return data;
         })
         .catch(function(e) {
             console.error('Error clearing session phones:', e);
-            currentFormPhones = {};
+            currentFormPhones = {}; // ✅ Clear tracking even on error
             return { success: true };
         });
 }
 
 function setupPhoneManualEdit() {
     document.querySelectorAll('.phone-input').forEach(function(inp) {
-        // Make sure input is editable
         inp.removeAttribute('readonly');
         inp.removeAttribute('disabled');
         
-        // Double-click to select all (makes editing easier)
         inp.addEventListener('dblclick', function() {
             this.select();
         });
         
-        // Focus event - show that user can edit
         inp.addEventListener('focus', function() {
             this.classList.add('editing');
         });
         
         inp.addEventListener('blur', function() {
             this.classList.remove('editing');
+            
+            // ✅ FIX: Update tracking when manually edited
+            var newValue = this.value.trim();
+            if (newValue.length === 10) {
+                currentFormPhones[this.id] = newValue;
+            } else if (newValue.length === 0) {
+                delete currentFormPhones[this.id];
+            }
         });
     });
 }
@@ -269,7 +288,7 @@ function autoFillAllPhones() {
             currentIndex++;
 
             if (currentIndex < phoneSequence.length) {
-                setTimeout(fillNextPhone, 400);
+                setTimeout(fillNextPhone, 500); // ✅ Increased delay for reliability
             }
         }
 
@@ -284,53 +303,47 @@ function setupPhoneValidation() {
         var pc = inp.closest('.phone-auto-container') || inp.closest('.col-md-4');
         var ct = pc ? pc.querySelector('.digit-counter') : null;
 
-        // Remove any existing readonly attribute
         inp.removeAttribute('readonly');
 
         inp.addEventListener('keypress', function(e) {
-            // Allow only numeric characters
             if (!/[0-9]/.test(e.key)) {
                 e.preventDefault();
                 return false;
             }
             
-            // Get selection length - if text is selected, we can replace it
             var selectionLength = this.selectionEnd - this.selectionStart;
-            
-            // Calculate effective length after replacement
             var effectiveLength = this.value.length - selectionLength;
             
-            // Block only if we're at max AND no text is selected to replace
             if (effectiveLength >= 10) {
                 e.preventDefault();
                 return false;
             }
         });
 
-        // Allow paste and handle it properly
         inp.addEventListener('paste', function(e) {
             e.preventDefault();
             var pastedText = (e.clipboardData || window.clipboardData).getData('text');
             var cleanedText = pastedText.replace(/\D/g, '').slice(0, 10);
             
-            // Get current selection
             var start = this.selectionStart;
             var end = this.selectionEnd;
             var currentValue = this.value;
             
-            // Replace selected text or insert at cursor
             var newValue = currentValue.substring(0, start) + cleanedText + currentValue.substring(end);
             newValue = newValue.replace(/\D/g, '').slice(0, 10);
             
             this.value = newValue;
             
-            // Set cursor position after pasted text
             var newCursorPos = Math.min(start + cleanedText.length, 10);
             this.setSelectionRange(newCursorPos, newCursorPos);
             
             updatePhoneCounter(this, ct);
             
-            // Update auto-filled indicator
+            // ✅ Update tracking
+            if (newValue.length === 10) {
+                currentFormPhones[this.id] = newValue;
+            }
+            
             var indicator = document.getElementById(this.id + '_indicator');
             if (this.dataset.autoFilled === 'true' && indicator) {
                 indicator.innerHTML = '<i class="bi bi-pencil"></i>Modified';
@@ -348,7 +361,13 @@ function setupPhoneValidation() {
             }
             updatePhoneCounter(this, ct);
             
-            // Update auto-filled indicator when manually edited
+            // ✅ Update tracking
+            if (v.length === 10) {
+                currentFormPhones[this.id] = v;
+            } else if (v.length === 0) {
+                delete currentFormPhones[this.id];
+            }
+            
             var indicator = document.getElementById(this.id + '_indicator');
             if (this.dataset.autoFilled === 'true' && indicator) {
                 indicator.innerHTML = '<i class="bi bi-pencil"></i>Modified';
@@ -361,15 +380,10 @@ function setupPhoneValidation() {
             validatePhoneNumber(this, ct);
         });
         
-        // Allow keyboard shortcuts (Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X, Backspace, Delete, Arrow keys)
         inp.addEventListener('keydown', function(e) {
-            // Allow: backspace, delete, tab, escape, enter, arrows
             if ([8, 9, 13, 27, 46, 37, 38, 39, 40].indexOf(e.keyCode) !== -1 ||
-                // Allow: Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+X
                 (e.ctrlKey === true && [65, 67, 86, 88].indexOf(e.keyCode) !== -1) ||
-                // Allow: Cmd+A, Cmd+C, Cmd+V, Cmd+X (Mac)
                 (e.metaKey === true && [65, 67, 86, 88].indexOf(e.keyCode) !== -1) ||
-                // Allow: home, end
                 (e.keyCode >= 35 && e.keyCode <= 36)) {
                 return;
             }
@@ -1448,7 +1462,6 @@ function generateDocuments() {
         });
 }
 
-// ==================== SAVE DRAFT ====================
 function saveDraft() {
     var btn = document.getElementById('draftBtn');
     if (!btn) return;
@@ -1458,33 +1471,28 @@ function saveDraft() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
     
-    // Start with the FULL previewData replacements (includes hidden fields like WIFE_OF, SPOUSE_NAME1, HE_SHE)
+    // Start with the FULL previewData replacements
     var replacements = {};
     
-    // First, get all values from the original previewData (includes hidden fields)
     if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
-        // Copy ALL fields including empty strings
         for (var key in previewData.replacements) {
             if (previewData.replacements.hasOwnProperty(key)) {
                 var val = previewData.replacements[key];
-                // Include even empty strings - they're important for WIFE_OF, SPOUSE_NAME1
                 replacements[key] = (val !== null && val !== undefined) ? val : '';
             }
         }
     }
     
-    // Then, override with any edited values from the preview table
+    // Override with any edited values from the preview table
     var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
     previewCells.forEach(function(cell) {
         var field = cell.dataset.field;
         if (field) {
             var value = cell.textContent ? cell.textContent.trim() : '';
-            // Override with table value (user might have edited it)
             replacements[field] = value;
         }
     });
     
-    // Validate we have data
     if (Object.keys(replacements).length === 0) {
         showToast('error', 'Error', 'No data to save. Please fill out the form first.');
         btn.disabled = false;
@@ -1492,20 +1500,37 @@ function saveDraft() {
         return;
     }
     
-    // Build draft data - include the full preview_data
+    // ✅ FIX: Collect phones used in this form
+    var phonesUsed = [];
+    var phoneFields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2'];
+    phoneFields.forEach(function(field) {
+        var phone = replacements[field];
+        if (phone && phone.length === 10) {
+            phonesUsed.push(phone);
+        }
+    });
+    
+    // Also add from currentFormPhones tracking
+    Object.keys(currentFormPhones).forEach(function(key) {
+        var phone = currentFormPhones[key];
+        if (phone && phone.length === 10 && phonesUsed.indexOf(phone) === -1) {
+            phonesUsed.push(phone);
+        }
+    });
+    
     var draftData = {
         template_type: selectedTemplate,
         folder_type: currentFolderType,
         replacements: replacements,
-        preview_data: typeof previewData !== 'undefined' ? previewData : {
+        preview_data: {
             template_type: selectedTemplate,
             folder_type: currentFolderType,
-            replacements: replacements
+            replacements: replacements,
+            phones_used: phonesUsed  // ✅ Include phones used
         },
         status: 'draft'
     };
     
-    // Validate template type
     if (!draftData.template_type) {
         showToast('error', 'Error', 'No template selected');
         btn.disabled = false;
@@ -1521,25 +1546,24 @@ function saveDraft() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
-            // Hide preview section
             document.getElementById('previewSection').classList.add('d-none');
             
-            // Show draft saved section
             var draftSavedSection = document.getElementById('draftSavedSection');
             if (draftSavedSection) {
                 draftSavedSection.querySelector('h4').textContent = 'Draft Saved!';
-                draftSavedSection.querySelector('h4').style.color = '';
                 draftSavedSection.querySelector('i').className = 'bi bi-journal-check';
-                draftSavedSection.querySelector('i').style.color = '';
                 draftSavedSection.querySelector('p').textContent = 'Your document has been saved as a draft. You can continue editing it later from the dashboard.';
-                
                 draftSavedSection.classList.remove('d-none');
                 draftSavedSection.scrollIntoView({ behavior: 'smooth' });
             }
             
+            // ✅ Log phones marked
+            if (data.phones_marked) {
+                console.log('Phones marked as used:', data.phones_marked);
+            }
+            
             showToast('success', 'Draft Saved', 'Your document has been saved successfully!');
             
-            // Clear phones
             clearSessionPhones();
             currentFormPhones = {};
         } else {
@@ -1556,7 +1580,6 @@ function saveDraft() {
     });
 }
 
-// ==================== SUBMIT FOR APPROVAL ====================
 function submitForApproval() {
     var btn = document.getElementById('submitApprovalBtn');
     if (!btn) return;
@@ -1569,33 +1592,26 @@ function submitForApproval() {
     if (spinner) spinner.classList.remove('d-none');
     if (icon) icon.classList.add('d-none');
     
-    // Start with the FULL previewData replacements (includes hidden fields like WIFE_OF, SPOUSE_NAME1, HE_SHE)
     var replacements = {};
     
-    // First, get all values from the original previewData (includes hidden fields)
     if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
-        // Copy ALL fields including empty strings
         for (var key in previewData.replacements) {
             if (previewData.replacements.hasOwnProperty(key)) {
                 var val = previewData.replacements[key];
-                // Include even empty strings - they're important for WIFE_OF, SPOUSE_NAME1
                 replacements[key] = (val !== null && val !== undefined) ? val : '';
             }
         }
     }
     
-    // Then, override with any edited values from the preview table
     var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
     previewCells.forEach(function(cell) {
         var field = cell.dataset.field;
         if (field) {
             var value = cell.textContent ? cell.textContent.trim() : '';
-            // Override with table value (user might have edited it)
             replacements[field] = value;
         }
     });
     
-    // Validate we have data
     if (Object.keys(replacements).length === 0) {
         showToast('error', 'Error', 'No data to submit. Please fill out the form first.');
         btn.disabled = false;
@@ -1604,20 +1620,36 @@ function submitForApproval() {
         return;
     }
     
-    // Build draft data - include the full preview_data
+    // ✅ FIX: Collect phones used in this form
+    var phonesUsed = [];
+    var phoneFields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2'];
+    phoneFields.forEach(function(field) {
+        var phone = replacements[field];
+        if (phone && phone.length === 10) {
+            phonesUsed.push(phone);
+        }
+    });
+    
+    Object.keys(currentFormPhones).forEach(function(key) {
+        var phone = currentFormPhones[key];
+        if (phone && phone.length === 10 && phonesUsed.indexOf(phone) === -1) {
+            phonesUsed.push(phone);
+        }
+    });
+    
     var draftData = {
         template_type: selectedTemplate,
         folder_type: currentFolderType,
         replacements: replacements,
-        preview_data: typeof previewData !== 'undefined' ? previewData : {
+        preview_data: {
             template_type: selectedTemplate,
             folder_type: currentFolderType,
-            replacements: replacements
+            replacements: replacements,
+            phones_used: phonesUsed  // ✅ Include phones used
         },
         status: 'draft'
     };
     
-    // Validate template type
     if (!draftData.template_type) {
         showToast('error', 'Error', 'No template selected');
         btn.disabled = false;
@@ -1626,7 +1658,6 @@ function submitForApproval() {
         return;
     }
     
-    // Step 1: Save as draft first
     fetch('/api/drafts/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1635,17 +1666,14 @@ function submitForApproval() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success && data.draft_id) {
-            // Step 2: Submit for approval
             return fetch('/api/drafts/' + data.draft_id + '/submit-approval', {
                 method: 'POST'
             })
             .then(function(r) { return r.json(); })
             .then(function(approvalData) {
                 if (approvalData.success) {
-                    // Hide preview section
                     document.getElementById('previewSection').classList.add('d-none');
                     
-                    // Show submitted section
                     var submittedSection = document.getElementById('submittedSection');
                     if (submittedSection) {
                         submittedSection.classList.remove('d-none');
@@ -1654,7 +1682,6 @@ function submitForApproval() {
                     
                     showToast('success', 'Submitted', 'Document submitted for admin approval!');
                     
-                    // Clear phones
                     clearSessionPhones();
                     currentFormPhones = {};
                 } else {
@@ -1706,7 +1733,6 @@ function resetForm() {
     document.getElementById('previewSection').classList.add('d-none');
     document.getElementById('draftSavedSection').classList.add('d-none');
     
-    // Hide submitted section
     var submittedSection = document.getElementById('submittedSection');
     if (submittedSection) {
         submittedSection.classList.add('d-none');
@@ -1714,13 +1740,15 @@ function resetForm() {
     
     document.getElementById('templateFilesInfo').classList.remove('d-none');
 
+    // ✅ FIX: Clear phone tracking properly
     currentFormPhones = {};
+    clearSessionPhones(); // Clear backend session too
 
     if (selectedTemplate) {
         fetchTemplateFiles(selectedTemplate);
         setTimeout(function() {
             autoFillAllPhones();
-        }, 300);
+        }, 500); // ✅ Increased delay
     }
 
     document.querySelector('.template-selector-card').scrollIntoView({ behavior: 'smooth' });
