@@ -7,37 +7,38 @@ var previewData = null;
 var lockedFields = {};
 var monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
 var aliasCounters = { 'major': 0, 'minor': 0, 'religion': 0 };
-var phoneStats = { total: 0, used: 0, available: 0, reserved: 0 };
-var currentFormPhones = {}; 
+var phoneStats = { total: 0, used: 0, available: 0 };
+
+// Track phones in current form (local only - NOT session)
+var currentFormPhones = {};
+
 // Field Labels
 var fieldLabels = {
-    'OLD_NAME': 'Old Name', 
-    'NEW_NAME': 'New Name', 
-    'UPDATE_RELATION': 'Relation', 
+    'OLD_NAME': 'Old Name',
+    'NEW_NAME': 'New Name',
+    'UPDATE_RELATION': 'Relation',
     'FATHER-SPOUSE_NAME': 'Father/Spouse',
-    'SPOUSE_NAME1': 'Husband Name',  // Better label for D/o & W/o case
-    'GENDER_UPDATE': 'Gender', 
+    'SPOUSE_NAME1': 'Husband Name',
+    'GENDER_UPDATE': 'Gender',
     'CAST_UPDATE': 'Religion/Cast',
-    'UPDATE_ADDRESS': 'Address', 
-    'PHONE_UPDATE': 'Phone', 
-    'EMAIL_UPDATE': 'Email', 
+    'UPDATE_ADDRESS': 'Address',
+    'PHONE_UPDATE': 'Phone',
+    'EMAIL_UPDATE': 'Email',
     'NUM_DATE': 'Date of Submission',
-    'ALPHA_DATE': 'Date (Alpha)', 
-    'WITNESS_NAME1': 'Witness 1', 
-    'WITNESS_ADDRESS1': 'W1 Address', 
+    'ALPHA_DATE': 'Date (Alpha)',
+    'WITNESS_NAME1': 'Witness 1',
+    'WITNESS_ADDRESS1': 'W1 Address',
     'WITNESS_PHONE1': 'W1 Phone',
-    'WITNESS_NAME2': 'Witness 2', 
-    'WITNESS_ADDRESS2': 'W2 Address', 
+    'WITNESS_NAME2': 'Witness 2',
+    'WITNESS_ADDRESS2': 'W2 Address',
     'WITNESS_PHONE2': 'W2 Phone',
-    'FATHER-MOTHER_NAME': 'Father/Mother', 
-    'SON-DAUGHTER': 'Son/Daughter', 
-    'UPDATE_AGE': 'Age', 
-    'CHILD_DOB': 'DOB', 
+    'FATHER-MOTHER_NAME': 'Father/Mother',
+    'SON-DAUGHTER': 'Son/Daughter',
+    'UPDATE_AGE': 'Age',
+    'CHILD_DOB': 'DOB',
     'BIRTH_PLACE': 'Birth Place'
-    // Removed: 'WIFE_OF', 'FATHER_NAME', 'HE_SHE' - these are internal fields
 };
 
-// Preview field order - witness details at bottom
 var previewFieldOrder = [
     'OLD_NAME', 'NEW_NAME', 'UPDATE_RELATION', 'FATHER-SPOUSE_NAME', 'SPOUSE_NAME1',
     'GENDER_UPDATE', 'PHONE_UPDATE', 'EMAIL_UPDATE', 'CAST_UPDATE', 'UPDATE_ADDRESS',
@@ -45,8 +46,7 @@ var previewFieldOrder = [
     'WITNESS_NAME1', 'WITNESS_PHONE1', 'WITNESS_ADDRESS1', 'WITNESS_NAME2', 'WITNESS_PHONE2', 'WITNESS_ADDRESS2'
 ];
 
-// Result summary - only these 5 fields
-var resultSummaryFields = ['OLD_NAME', 'NEW_NAME', 'FATHER-SPOUSE_NAME', 'NUM_DATE', 'PHONE_UPDATE'];
+var hiddenPreviewFields = ['HE_SHE', 'WIFE_OF', 'FATHER_NAME'];
 
 // ==================== UTILITY FUNCTIONS ====================
 function escapeHtml(t) {
@@ -77,7 +77,7 @@ function scrollToElement(el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.classList.add('field-error');
     el.focus();
-    setTimeout(function() {
+    setTimeout(function () {
         el.classList.remove('field-error');
     }, 1000);
 }
@@ -93,19 +93,48 @@ function updateTime() {
     }
 }
 
-// ==================== PHONE NUMBER MANAGEMENT (FIXED) ====================
+// ==================== PHONE NUMBER MANAGEMENT (SIMPLE) ====================
 
 function loadPhoneStats() {
     fetch('/api/phone/stats')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
             if (data.success) {
                 phoneStats = data.stats;
             }
         })
-        .catch(function(e) {
+        .catch(function (e) {
             console.error('Error loading phone stats:', e);
         });
+}
+
+function getExcludePhones(excludeInputId) {
+    /**
+     * Get list of phones currently in form inputs to exclude
+     * This ensures each phone field gets a DIFFERENT number
+     */
+    var excludeList = [];
+
+    // Get phones from all phone inputs except the one being filled
+    document.querySelectorAll('.phone-input').forEach(function (inp) {
+        if (inp.id !== excludeInputId) {
+            var val = inp.value.trim();
+            if (val && val.length === 10) {
+                excludeList.push(val);
+            }
+        }
+    });
+
+    // Also add from tracking object
+    Object.keys(currentFormPhones).forEach(function (key) {
+        if (key !== excludeInputId && currentFormPhones[key]) {
+            if (excludeList.indexOf(currentFormPhones[key]) === -1) {
+                excludeList.push(currentFormPhones[key]);
+            }
+        }
+    });
+
+    return excludeList;
 }
 
 function getNextPhone(inputId) {
@@ -115,78 +144,44 @@ function getNextPhone(inputId) {
 
     if (!phoneInput) return;
 
-    var oldValue = phoneInput.value.trim();
-
-    if (oldValue && phoneInput.dataset.autoFilled !== 'true') {
-        if (!confirm('Replace existing phone number with auto-generated one?')) {
-            return;
-        }
-    }
-
+    // Show loading
     if (btn) {
-        btn.classList.add('loading');
+        btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
     }
 
-    // ✅ FIX: Build comprehensive exclude list
-    var excludePhones = [];
-    
-    // 1. Add all phones from currentFormPhones tracking object
-    Object.keys(currentFormPhones).forEach(function(key) {
-        if (key !== inputId && currentFormPhones[key]) {
-            excludePhones.push(currentFormPhones[key]);
-        }
-    });
-    
-    // 2. Add all phones from visible phone inputs (backup check)
-    document.querySelectorAll('.phone-input:not(:disabled)').forEach(function(inp) {
-        if (inp.id !== inputId) {
-            var val = inp.value.trim();
-            if (val && val.length === 10 && excludePhones.indexOf(val) === -1) {
-                excludePhones.push(val);
-            }
-        }
-    });
+    // Build exclude list (other phones in this form)
+    var excludePhones = getExcludePhones(inputId);
 
-    var releasePromise = Promise.resolve();
-    if (oldValue && oldValue.length === 10 && phoneInput.dataset.autoFilled === 'true') {
-        releasePromise = fetch('/api/phone/release', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: oldValue })
-        }).then(function(r) { return r.json(); }).catch(function() {});
-        
-        // ✅ Remove from tracking
-        delete currentFormPhones[inputId];
-    }
+    console.log('Getting phone for:', inputId, 'Excluding:', excludePhones);
 
-    releasePromise.then(function() {
-        return fetch('/api/phone/next', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ exclude: excludePhones })
-        });
+    fetch('/api/phone/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exclude: excludePhones })
     })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
             if (data.success && data.phone) {
                 phoneInput.value = data.phone;
                 phoneInput.dataset.autoFilled = 'true';
-                phoneInput.classList.add('auto-filled');
                 phoneInput.classList.remove('is-invalid');
                 phoneInput.classList.add('is-valid');
 
-                // ✅ FIX: Track this phone assignment
+                // Track this phone
                 currentFormPhones[inputId] = data.phone;
 
+                // Show indicator
                 if (indicator) {
                     indicator.classList.remove('d-none');
-                    indicator.innerHTML = '<i class="bi bi-magic"></i>Auto-filled';
+                    indicator.innerHTML = '<i class="bi bi-magic"></i> Auto-filled';
                     indicator.classList.remove('modified');
                 }
 
+                // Update stats
                 if (data.stats) phoneStats = data.stats;
 
+                // Update digit counter
                 var pc = phoneInput.closest('.phone-auto-container');
                 var ct = pc ? pc.querySelector('.digit-counter') : null;
                 if (ct) {
@@ -195,198 +190,148 @@ function getNextPhone(inputId) {
                     ct.classList.add('success');
                 }
 
-                setTimeout(function() {
+                // Flash effect
+                phoneInput.classList.add('auto-filled');
+                setTimeout(function () {
                     phoneInput.classList.remove('auto-filled');
-                }, 2000);
+                }, 1500);
 
-                showToast('success', 'Phone', 'Unique phone number assigned');
+                console.log('✅ Phone assigned:', data.phone);
             } else {
                 showToast('warning', 'Phone', data.message || 'No phone numbers available');
             }
         })
-        .catch(function(e) {
+        .catch(function (e) {
             console.error('Error getting phone:', e);
             showToast('error', 'Error', 'Failed to get phone number');
         })
-        .finally(function() {
+        .finally(function () {
             if (btn) {
-                btn.classList.remove('loading');
+                btn.disabled = false;
                 btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
             }
         });
 }
 
-function clearSessionPhones() {
-    return fetch('/api/phone/clear_session', { method: 'POST' })
-        .then(function(r) { 
-            if (!r.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return r.json(); 
-        })
-        .then(function(data) {
-            if (data.success) {
-                phoneStats = data.stats || phoneStats;
-                currentFormPhones = {}; // ✅ Clear tracking
-            }
-            return data;
-        })
-        .catch(function(e) {
-            console.error('Error clearing session phones:', e);
-            currentFormPhones = {}; // ✅ Clear tracking even on error
-            return { success: true };
-        });
-}
-
-function setupPhoneManualEdit() {
-    document.querySelectorAll('.phone-input').forEach(function(inp) {
-        inp.removeAttribute('readonly');
-        inp.removeAttribute('disabled');
-        
-        inp.addEventListener('dblclick', function() {
-            this.select();
-        });
-        
-        inp.addEventListener('focus', function() {
-            this.classList.add('editing');
-        });
-        
-        inp.addEventListener('blur', function() {
-            this.classList.remove('editing');
-            
-            // ✅ FIX: Update tracking when manually edited
-            var newValue = this.value.trim();
-            if (newValue.length === 10) {
-                currentFormPhones[this.id] = newValue;
-            } else if (newValue.length === 0) {
-                delete currentFormPhones[this.id];
-            }
-        });
-    });
-}
-
 function autoFillAllPhones() {
-    clearSessionPhones().then(function() {
-        var prefix = 'major';
-        if (selectedTemplate === 'minor_template') prefix = 'minor';
-        else if (selectedTemplate === 'religion_template') prefix = 'religion';
+    // Clear tracking
+    currentFormPhones = {};
 
-        var mainPhoneId = prefix + '_phone_update';
-        var phoneSequence = [mainPhoneId, 'witness_phone1', 'witness_phone2'];
-        var currentIndex = 0;
+    // Determine template prefix
+    var prefix = 'major';
+    if (selectedTemplate === 'minor_template') prefix = 'minor';
+    else if (selectedTemplate === 'religion_template') prefix = 'religion';
 
-        function fillNextPhone() {
-            if (currentIndex >= phoneSequence.length) return;
+    var mainPhoneId = prefix + '_phone_update';
+    var phoneSequence = [mainPhoneId, 'witness_phone1', 'witness_phone2'];
+    var currentIndex = 0;
 
-            var phoneId = phoneSequence[currentIndex];
-            var phoneInput = document.getElementById(phoneId);
-
-            if (phoneInput && !phoneInput.value.trim()) {
-                getNextPhone(phoneId);
-            }
-
-            currentIndex++;
-
-            if (currentIndex < phoneSequence.length) {
-                setTimeout(fillNextPhone, 500); // ✅ Increased delay for reliability
-            }
+    function fillNextPhone() {
+        if (currentIndex >= phoneSequence.length) {
+            console.log('✅ All phones filled:', currentFormPhones);
+            return;
         }
 
-        setTimeout(fillNextPhone, 200);
-    }).catch(function(e) {
-        console.error('Error in autoFillAllPhones:', e);
+        var phoneId = phoneSequence[currentIndex];
+        var phoneInput = document.getElementById(phoneId);
+
+        // Only fill if empty
+        if (phoneInput && !phoneInput.value.trim()) {
+            getNextPhone(phoneId);
+        }
+
+        currentIndex++;
+
+        // Fill next after delay
+        if (currentIndex < phoneSequence.length) {
+            setTimeout(fillNextPhone, 400);
+        }
+    }
+
+    // Start filling
+    setTimeout(fillNextPhone, 100);
+}
+
+function clearAllPhoneInputs() {
+    currentFormPhones = {};
+
+    document.querySelectorAll('.phone-input').forEach(function (inp) {
+        inp.value = '';
+        inp.dataset.autoFilled = '';
+        inp.classList.remove('is-valid', 'is-invalid');
+    });
+
+    document.querySelectorAll('.phone-auto-indicator').forEach(function (ind) {
+        ind.classList.add('d-none');
+    });
+
+    document.querySelectorAll('.digit-counter').forEach(function (ct) {
+        ct.textContent = '0/10 digits';
+        ct.classList.remove('success', 'warning', 'error');
     });
 }
 
 function setupPhoneValidation() {
-    document.querySelectorAll('.phone-input').forEach(function(inp) {
+    document.querySelectorAll('.phone-input').forEach(function (inp) {
         var pc = inp.closest('.phone-auto-container') || inp.closest('.col-md-4');
         var ct = pc ? pc.querySelector('.digit-counter') : null;
 
+        // Allow editing
         inp.removeAttribute('readonly');
+        inp.removeAttribute('disabled');
 
-        inp.addEventListener('keypress', function(e) {
+        // Only allow digits
+        inp.addEventListener('keypress', function (e) {
             if (!/[0-9]/.test(e.key)) {
                 e.preventDefault();
                 return false;
             }
-            
-            var selectionLength = this.selectionEnd - this.selectionStart;
-            var effectiveLength = this.value.length - selectionLength;
-            
-            if (effectiveLength >= 10) {
+            if (this.value.length >= 10) {
                 e.preventDefault();
                 return false;
             }
         });
 
-        inp.addEventListener('paste', function(e) {
+        // Handle paste
+        inp.addEventListener('paste', function (e) {
             e.preventDefault();
             var pastedText = (e.clipboardData || window.clipboardData).getData('text');
             var cleanedText = pastedText.replace(/\D/g, '').slice(0, 10);
-            
-            var start = this.selectionStart;
-            var end = this.selectionEnd;
-            var currentValue = this.value;
-            
-            var newValue = currentValue.substring(0, start) + cleanedText + currentValue.substring(end);
-            newValue = newValue.replace(/\D/g, '').slice(0, 10);
-            
-            this.value = newValue;
-            
-            var newCursorPos = Math.min(start + cleanedText.length, 10);
-            this.setSelectionRange(newCursorPos, newCursorPos);
-            
+            this.value = cleanedText;
             updatePhoneCounter(this, ct);
-            
-            // ✅ Update tracking
-            if (newValue.length === 10) {
-                currentFormPhones[this.id] = newValue;
-            }
-            
-            var indicator = document.getElementById(this.id + '_indicator');
-            if (this.dataset.autoFilled === 'true' && indicator) {
-                indicator.innerHTML = '<i class="bi bi-pencil"></i>Modified';
-                indicator.classList.add('modified');
-                indicator.classList.remove('d-none');
+
+            if (cleanedText.length === 10) {
+                currentFormPhones[this.id] = cleanedText;
             }
         });
 
-        inp.addEventListener('input', function() {
+        // Handle input
+        inp.addEventListener('input', function () {
             var v = this.value.replace(/\D/g, '').slice(0, 10);
             if (this.value !== v) {
-                var cp = this.selectionStart;
                 this.value = v;
-                this.setSelectionRange(Math.min(cp, v.length), Math.min(cp, v.length));
             }
             updatePhoneCounter(this, ct);
-            
-            // ✅ Update tracking
+
+            // Update tracking
             if (v.length === 10) {
                 currentFormPhones[this.id] = v;
-            } else if (v.length === 0) {
+            } else {
                 delete currentFormPhones[this.id];
             }
-            
+
+            // Show modified indicator
             var indicator = document.getElementById(this.id + '_indicator');
             if (this.dataset.autoFilled === 'true' && indicator) {
-                indicator.innerHTML = '<i class="bi bi-pencil"></i>Modified';
+                indicator.innerHTML = '<i class="bi bi-pencil"></i> Modified';
                 indicator.classList.add('modified');
                 indicator.classList.remove('d-none');
             }
         });
 
-        inp.addEventListener('blur', function() {
+        // Validate on blur
+        inp.addEventListener('blur', function () {
             validatePhoneNumber(this, ct);
-        });
-        
-        inp.addEventListener('keydown', function(e) {
-            if ([8, 9, 13, 27, 46, 37, 38, 39, 40].indexOf(e.keyCode) !== -1 ||
-                (e.ctrlKey === true && [65, 67, 86, 88].indexOf(e.keyCode) !== -1) ||
-                (e.metaKey === true && [65, 67, 86, 88].indexOf(e.keyCode) !== -1) ||
-                (e.keyCode >= 35 && e.keyCode <= 36)) {
-                return;
-            }
         });
     });
 }
@@ -398,7 +343,7 @@ function updatePhoneCounter(inp, ct) {
     ct.classList.remove('warning', 'error', 'success');
 
     if (l === 0) {
-        // Default state
+        // Default
     } else if (l < 10) {
         ct.classList.add('warning');
     } else {
@@ -466,10 +411,8 @@ function calculateAgeFromDOB() {
     if (dob > today) {
         showToast('error', 'Invalid DOB', 'Date of birth cannot be in the future!');
         ageInput.value = '';
-        ageInput.placeholder = 'Invalid DOB';
         ageInput.classList.add('is-invalid');
         dobInput.classList.add('is-invalid');
-        if (indicator) indicator.classList.add('d-none');
         return;
     }
 
@@ -481,40 +424,26 @@ function calculateAgeFromDOB() {
     age = Math.max(0, Math.floor(age));
 
     if (age >= 18) {
-        showToast('error', 'Not a Minor!', 'Person is ' + age + ' years old. Use MAJOR template for adults (18+).');
+        showToast('error', 'Not a Minor!', 'Person is ' + age + ' years old. Use MAJOR template.');
         ageInput.value = '';
-        ageInput.placeholder = 'NOT A MINOR';
         ageInput.classList.add('is-invalid');
         dobInput.classList.add('is-invalid');
 
         if (errorMsg) {
             errorMsg.classList.remove('d-none');
-            errorMsg.innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>Person is ' + age + ' years old (18+). Use Major Template!';
-        }
-
-        if (indicator) {
-            indicator.classList.remove('d-none');
-            indicator.classList.add('error');
-            indicator.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i><span class="text-danger"> Age ' + age + ' - NOT A MINOR!</span>';
+            errorMsg.innerHTML = '<i class="bi bi-exclamation-circle me-1"></i>Person is ' + age + ' (18+). Use Major Template!';
         }
         return;
     }
 
     ageInput.value = age;
-    ageInput.classList.remove('is-invalid');
     ageInput.classList.add('is-valid');
-    dobInput.classList.remove('is-invalid');
     dobInput.classList.add('is-valid');
-    ageInput.classList.add('auto-filled');
 
     if (indicator) {
-        indicator.classList.remove('d-none', 'error');
-        indicator.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i><span class="text-success"> Age: ' + age + ' years (Valid Minor)</span>';
+        indicator.classList.remove('d-none');
+        indicator.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> Age: ' + age + ' years';
     }
-
-    setTimeout(function() {
-        ageInput.classList.remove('auto-filled');
-    }, 2000);
 }
 
 function setupDOBAutoAge() {
@@ -564,9 +493,9 @@ function generateEmailFromName(p) {
 
     if (i) i.classList.remove('d-none');
 
-    setTimeout(function() {
+    setTimeout(function () {
         e.classList.remove('auto-filled');
-    }, 2000);
+    }, 1500);
 }
 
 // ==================== ADDRESS COPY ====================
@@ -579,26 +508,14 @@ function copyAddressToWitnesses(p) {
 
     var addr = a.value.trim().toUpperCase();
 
-    if (w1.dataset.autoFilled !== 'true' && w1.value.trim()) {
-        // Don't overwrite manual entry
-    } else {
+    if (!w1.value.trim() || w1.dataset.autoFilled === 'true') {
         w1.value = addr;
         w1.dataset.autoFilled = 'true';
-        if (addr) {
-            w1.classList.add('auto-filled');
-            setTimeout(function() { w1.classList.remove('auto-filled'); }, 500);
-        }
     }
 
-    if (w2.dataset.autoFilled !== 'true' && w2.value.trim()) {
-        // Don't overwrite manual entry
-    } else {
+    if (!w2.value.trim() || w2.dataset.autoFilled === 'true') {
         w2.value = addr;
         w2.dataset.autoFilled = 'true';
-        if (addr) {
-            w2.classList.add('auto-filled');
-            setTimeout(function() { w2.classList.remove('auto-filled'); }, 500);
-        }
     }
 }
 
@@ -607,72 +524,47 @@ function addAliasField(p) {
     aliasCounters[p]++;
     var c = document.getElementById(p + '_alias_container');
     var n = aliasCounters[p];
-    
-    // Create wrapper div
+
     var wrapper = document.createElement('div');
     wrapper.className = 'alias-field-wrapper';
     wrapper.id = p + '_alias_item_' + n;
-    
-    // Create input
+
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'form-control uppercase-input alias-input';
     input.name = 'alias_names[]';
     input.placeholder = 'Alias ' + n;
     input.setAttribute('oninput', "this.value=this.value.toUpperCase();updateAliasPreview('" + p + "');");
-    
-    // Create delete button
+
     var deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
     deleteBtn.className = 'remove-alias-btn';
     deleteBtn.title = 'Remove Alias';
     deleteBtn.setAttribute('onclick', "removeAliasField('" + p + "'," + n + ")");
     deleteBtn.innerHTML = '<i class="bi bi-trash3"></i>';
-    
-    // Append input and button to wrapper
+
     wrapper.appendChild(input);
     wrapper.appendChild(deleteBtn);
-    
-    // Add wrapper to container
     c.appendChild(wrapper);
-    
-    // Update counter and preview
+
     updateAliasCounter(p);
     updateAliasPreview(p);
-    
-    // Focus on the new input
     input.focus();
-    
-    showToast('success', 'Added', 'Alias ' + n + ' added');
 }
 
 function removeAliasField(p, n) {
     var d = document.getElementById(p + '_alias_item_' + n);
     if (d) {
-        d.style.animation = 'slideIn 0.3s ease reverse';
-        setTimeout(function() {
-            d.remove();
-            updateAliasCounter(p);
-            updateAliasPreview(p);
-            renumberAliasLabels(p);
-        }, 250);
-        showToast('info', 'Removed', 'Alias removed');
+        d.remove();
+        updateAliasCounter(p);
+        updateAliasPreview(p);
     }
-}
-
-function renumberAliasLabels(p) {
-    var c = document.getElementById(p + '_alias_container');
-    var items = c.querySelectorAll('.alias-item');
-    items.forEach(function(it, i) {
-        var l = it.querySelector('.alias-label');
-        if (l) l.textContent = 'Alias ' + (i + 1);
-    });
 }
 
 function updateAliasCounter(p) {
     var c = document.getElementById(p + '_alias_container');
     var ct = document.getElementById(p + '_alias_counter');
-    var n = c.querySelectorAll('.alias-item').length;
+    var n = c.querySelectorAll('.alias-field-wrapper').length;
     if (n > 0) {
         ct.style.display = 'block';
         ct.querySelector('.count').textContent = n;
@@ -692,7 +584,7 @@ function updateAliasPreview(p) {
     var html = '<span class="name-text">' + (name || 'NAME') + '</span>';
     var has = false;
 
-    inps.forEach(function(i) {
+    inps.forEach(function (i) {
         var v = i.value.trim().toUpperCase();
         if (v) {
             has = true;
@@ -712,7 +604,7 @@ function getAliasNames(p) {
     var c = document.getElementById(p + '_alias_container');
     var inps = c.querySelectorAll('.alias-input');
     var a = [];
-    inps.forEach(function(i) {
+    inps.forEach(function (i) {
         var v = i.value.trim().toUpperCase();
         if (v) a.push(v);
     });
@@ -724,11 +616,7 @@ function buildOldNameWithAliases(p) {
     var name = o ? o.value.trim().toUpperCase() : '';
     var a = getAliasNames(p);
     if (a.length === 0) return name;
-    var c = name;
-    a.forEach(function(al) {
-        c += ' alias ' + al;
-    });
-    return c;
+    return name + ' alias ' + a.join(' alias ');
 }
 
 function clearAliases(p) {
@@ -745,9 +633,9 @@ function setupRelationAutoGender() {
     var rel = document.getElementById('religionRelationSelect');
     var min = document.getElementById('minorRelationSelect');
 
-    if (maj) maj.addEventListener('change', function() { handleMajorRelationChange(this.value); });
-    if (rel) rel.addEventListener('change', function() { handleReligionRelationChange(this.value); });
-    if (min) min.addEventListener('change', function() { handleMinorRelationChange(this.value); });
+    if (maj) maj.addEventListener('change', function () { handleMajorRelationChange(this.value); });
+    if (rel) rel.addEventListener('change', function () { handleReligionRelationChange(this.value); });
+    if (min) min.addEventListener('change', function () { handleMinorRelationChange(this.value); });
 }
 
 function handleMajorRelationChange(v) {
@@ -769,11 +657,7 @@ function handleMajorRelationChange(v) {
         si.disabled = false;
         fi.setAttribute('data-required', 'true');
         si.setAttribute('data-required', 'true');
-        if (gs) {
-            gs.value = 'FEMALE';
-            gs.classList.add('auto-filled');
-            setTimeout(function() { gs.classList.remove('auto-filled'); }, 2000);
-        }
+        if (gs) gs.value = 'FEMALE';
         if (ht) ht.classList.add('d-none');
     } else {
         nf.classList.remove('d-none');
@@ -784,26 +668,14 @@ function handleMajorRelationChange(v) {
         si.disabled = true;
         fi.value = '';
         si.value = '';
-        fi.removeAttribute('data-required');
-        si.removeAttribute('data-required');
 
-        var g = '';
-        if (v === 's') g = 'MALE';
-        else if (v === 'd' || v === 'w') g = 'FEMALE';
+        if (v === 's' && gs) gs.value = 'MALE';
+        else if ((v === 'd' || v === 'w') && gs) gs.value = 'FEMALE';
 
-        if (g && gs) {
-            gs.value = g;
-            gs.classList.add('auto-filled');
-            setTimeout(function() { gs.classList.remove('auto-filled'); }, 2000);
-        }
-
-        if (v === 'd') {
-            if (ht) {
-                ht.classList.remove('d-none');
-                ht.innerHTML = '<i class="bi bi-info-circle me-1"></i>D/o uses unmarried templates';
-            }
-        } else {
-            if (ht) ht.classList.add('d-none');
+        if (v === 'd' && ht) {
+            ht.classList.remove('d-none');
+        } else if (ht) {
+            ht.classList.add('d-none');
         }
     }
 
@@ -824,47 +696,24 @@ function handleReligionRelationChange(v) {
         df.classList.remove('d-none');
         ni.disabled = true;
         ni.value = '';
-        ni.removeAttribute('data-required');
         fi.disabled = false;
         si.disabled = false;
-        fi.setAttribute('data-required', 'true');
-        si.setAttribute('data-required', 'true');
-        if (gs) {
-            gs.value = 'FEMALE';
-            gs.classList.add('auto-filled');
-            setTimeout(function() { gs.classList.remove('auto-filled'); }, 2000);
-        }
+        if (gs) gs.value = 'FEMALE';
         if (ht) ht.classList.add('d-none');
     } else {
         nf.classList.remove('d-none');
         df.classList.add('d-none');
         ni.disabled = false;
-        ni.setAttribute('data-required', 'true');
         fi.disabled = true;
         si.disabled = true;
         fi.value = '';
         si.value = '';
-        fi.removeAttribute('data-required');
-        si.removeAttribute('data-required');
 
-        var g = '';
-        if (v === 's') g = 'MALE';
-        else if (v === 'd' || v === 'w') g = 'FEMALE';
+        if (v === 's' && gs) gs.value = 'MALE';
+        else if ((v === 'd' || v === 'w') && gs) gs.value = 'FEMALE';
 
-        if (g && gs) {
-            gs.value = g;
-            gs.classList.add('auto-filled');
-            setTimeout(function() { gs.classList.remove('auto-filled'); }, 2000);
-        }
-
-        if (v === 'd') {
-            if (ht) {
-                ht.classList.remove('d-none');
-                ht.innerHTML = '<i class="bi bi-info-circle me-1"></i>D/o uses unmarried templates';
-            }
-        } else {
-            if (ht) ht.classList.add('d-none');
-        }
+        if (v === 'd' && ht) ht.classList.remove('d-none');
+        else if (ht) ht.classList.add('d-none');
     }
 
     fetchTemplatesByRelation(selectedTemplate, v);
@@ -882,22 +731,16 @@ function handleMinorRelationChange(v) {
         df.classList.remove('d-none');
         ni.disabled = true;
         ni.value = '';
-        ni.removeAttribute('data-required');
         fi.disabled = false;
         si.disabled = false;
-        fi.setAttribute('data-required', 'true');
-        si.setAttribute('data-required', 'true');
     } else {
         nf.classList.remove('d-none');
         df.classList.add('d-none');
         ni.disabled = false;
-        ni.setAttribute('data-required', 'true');
         fi.disabled = true;
         si.disabled = true;
         fi.value = '';
         si.value = '';
-        fi.removeAttribute('data-required');
-        si.removeAttribute('data-required');
     }
 }
 
@@ -905,20 +748,17 @@ function setupSonDaughterAutoGender() {
     var sd = document.getElementById('sonDaughterSelect');
     var mg = document.getElementById('minorGenderSelect');
     if (sd && mg) {
-        sd.addEventListener('change', function() {
-            var v = this.value.toLowerCase();
-            if (v === 'son') mg.value = 'MALE';
-            else if (v === 'daughter') mg.value = 'FEMALE';
-            mg.classList.add('auto-filled');
-            setTimeout(function() { mg.classList.remove('auto-filled'); }, 2000);
+        sd.addEventListener('change', function () {
+            if (this.value.toLowerCase() === 'son') mg.value = 'MALE';
+            else if (this.value.toLowerCase() === 'daughter') mg.value = 'FEMALE';
         });
     }
 }
 
 // ==================== UPPERCASE INPUTS ====================
 function setupUppercaseInputs() {
-    document.querySelectorAll('.uppercase-input').forEach(function(i) {
-        i.addEventListener('input', function() {
+    document.querySelectorAll('.uppercase-input').forEach(function (i) {
+        i.addEventListener('input', function () {
             var s = this.selectionStart;
             var e = this.selectionEnd;
             this.value = this.value.toUpperCase();
@@ -930,21 +770,24 @@ function setupUppercaseInputs() {
 // ==================== TEMPLATE SELECTION ====================
 function selectTemplate(t) {
     if (!t) return;
+
     selectedTemplate = t;
     document.getElementById('template_type').value = t;
     document.getElementById('processForm').classList.remove('d-none');
 
-    document.querySelectorAll('.template-form-section').forEach(function(s) {
+    // Disable all template sections
+    document.querySelectorAll('.template-form-section').forEach(function (s) {
         s.classList.remove('active');
-        s.querySelectorAll('input,select,textarea').forEach(function(i) {
+        s.querySelectorAll('input,select,textarea').forEach(function (i) {
             i.disabled = true;
         });
     });
 
+    // Enable selected template section
     var ts = document.querySelector('.template-form-section[data-template="' + t + '"]');
     if (ts) {
         ts.classList.add('active');
-        ts.querySelectorAll('input,select,textarea').forEach(function(i) {
+        ts.querySelectorAll('input,select,textarea').forEach(function (i) {
             i.disabled = false;
         });
     }
@@ -952,33 +795,42 @@ function selectTemplate(t) {
     document.getElementById('commonSections').classList.remove('d-none');
     document.getElementById('templateFilesInfo').classList.remove('d-none');
 
+    // Clear aliases
     clearAliases('major');
     clearAliases('minor');
     clearAliases('religion');
 
+    // Fetch template files
     fetchTemplateFiles(t);
 
+    // Hide result sections
     document.getElementById('previewSection').classList.add('d-none');
     document.getElementById('draftSavedSection').classList.add('d-none');
+    var submittedSection = document.getElementById('submittedSection');
+    if (submittedSection) submittedSection.classList.add('d-none');
 
+    // Initialize event listeners
     initializeEventListeners();
 
-    setTimeout(function() {
+    // Clear and fill phones
+    clearAllPhoneInputs();
+    setTimeout(function () {
         autoFillAllPhones();
-    }, 300);
+    }, 200);
 
-    setTimeout(function() {
+    // Scroll to form
+    setTimeout(function () {
         document.getElementById('processForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
 }
 
 function fetchTemplateFiles(t) {
     fetch('/get_template_config/' + t)
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
             if (d.success) updateTemplateFilesUI(d.templates, d.count, 'main');
         })
-        .catch(function(e) {
+        .catch(function (e) {
             console.error(e);
             showToast('error', 'Error', 'Failed to load templates');
         });
@@ -989,17 +841,13 @@ function fetchTemplatesByRelation(t, r) {
     fc.classList.add('files-updating');
 
     fetch('/get_templates_by_relation/' + t + '/' + r)
-        .then(function(res) { return res.json(); })
-        .then(function(d) {
+        .then(function (res) { return res.json(); })
+        .then(function (d) {
             if (d.success) {
                 updateTemplateFilesUI(d.templates, d.count, d.folder_type);
-                showToast('info', 'Folder', d.folder_type === 'unmarried' ? 'Unmarried templates' : 'Main templates');
             }
         })
-        .catch(function(e) {
-            console.error(e);
-        })
-        .finally(function() {
+        .finally(function () {
             fc.classList.remove('files-updating');
         });
 }
@@ -1011,7 +859,7 @@ function updateTemplateFilesUI(templates, count, folderType) {
     document.getElementById('templateFilesSection').classList.remove('d-none');
 
     var html = templates.length > 0 ?
-        templates.map(function(f) {
+        templates.map(function (f) {
             return '<span class="file-badge"><i class="bi bi-file-earmark-word me-1"></i>' + f + '</span>';
         }).join('') :
         '<span class="text-muted small">No templates</span>';
@@ -1034,7 +882,6 @@ function updateTemplateFilesUI(templates, count, folderType) {
     }
 
     document.getElementById('previewBtn').disabled = count === 0;
-    if (count === 0) showToast('warning', 'Warning', 'No templates found');
 }
 
 // ==================== DATE HANDLING ====================
@@ -1059,9 +906,6 @@ function updateNumDate() {
             var suf = getOrdinalSuffix(d.getDate());
             var mn = monthNames[d.getMonth()];
             af.value = day + suf + ' Day of ' + mn + ' ' + yr;
-            document.getElementById('alpha_day').value = d.getDate();
-            document.getElementById('alpha_month').value = mn;
-            document.getElementById('alpha_year').value = yr;
         }
     } else {
         pr.style.display = 'none';
@@ -1074,18 +918,17 @@ function updateNumDate() {
 function validateForm() {
     var as = document.querySelector('.template-form-section.active');
     if (!as) {
-        showToast('error', 'Error', 'Select template');
+        showToast('error', 'Error', 'Select a template');
         return false;
     }
 
     var valid = true, first = null, msg = 'Fill all required fields';
 
     // Check required fields in active section
-    as.querySelectorAll('[data-required="true"]:not(:disabled)').forEach(function(f) {
-        var pc = f.closest('.col-md-6,.col-md-4,.col-md-5,.col-md-2,.col-md-8,.col-12');
+    as.querySelectorAll('[data-required="true"]:not(:disabled)').forEach(function (f) {
+        var pc = f.closest('.col-md-6,.col-md-4,.col-12');
         if (pc && pc.classList.contains('d-none')) return;
-        var v = f.value.trim();
-        if (!v) {
+        if (!f.value.trim()) {
             valid = false;
             f.classList.add('is-invalid');
             if (!first) first = f;
@@ -1097,9 +940,8 @@ function validateForm() {
     // Check common sections
     var cs = document.getElementById('commonSections');
     if (cs && !cs.classList.contains('d-none')) {
-        cs.querySelectorAll('[data-required="true"]:not(:disabled)').forEach(function(f) {
-            var v = f.value.trim();
-            if (!v) {
+        cs.querySelectorAll('[data-required="true"]:not(:disabled)').forEach(function (f) {
+            if (!f.value.trim()) {
                 valid = false;
                 f.classList.add('is-invalid');
                 if (!first) first = f;
@@ -1110,68 +952,37 @@ function validateForm() {
     }
 
     // Phone validation with duplicate check
-    // ONLY validate phones in ACTIVE template section and common sections
     var phoneValues = [];
-    
-    // Get phone inputs from active template section
-    var activePhoneInputs = as.querySelectorAll('.phone-input:not(:disabled)');
-    
-    // Get phone inputs from common sections (witness phones)
-    var commonPhoneInputs = [];
-    if (cs && !cs.classList.contains('d-none')) {
-        commonPhoneInputs = cs.querySelectorAll('.phone-input:not(:disabled)');
-    }
-    
-    // Combine both sets of phone inputs
-    var allPhoneInputs = [];
-    activePhoneInputs.forEach(function(inp) {
-        allPhoneInputs.push(inp);
-    });
-    commonPhoneInputs.forEach(function(inp) {
-        allPhoneInputs.push(inp);
-    });
-    
-    // Validate only the relevant phone inputs
-    allPhoneInputs.forEach(function(i) {
-        // Skip if parent is hidden
+    var allPhones = [];
+
+    as.querySelectorAll('.phone-input:not(:disabled)').forEach(function (inp) { allPhones.push(inp); });
+    if (cs) cs.querySelectorAll('.phone-input:not(:disabled)').forEach(function (inp) { allPhones.push(inp); });
+
+    allPhones.forEach(function (i) {
         var parentCol = i.closest('.col-md-4, .col-md-6, .col-12');
-        if (parentCol && parentCol.classList.contains('d-none')) {
-            return;
-        }
-        
+        if (parentCol && parentCol.classList.contains('d-none')) return;
+
         var l = i.value.trim().length;
         var req = i.hasAttribute('data-required');
-        
+
         if (req && l === 0) {
             valid = false;
             i.classList.add('is-invalid');
-            if (!first) { 
-                first = i; 
-                msg = 'Phone required'; 
-            }
+            if (!first) { first = i; msg = 'Phone required'; }
         } else if (l > 0 && l !== 10) {
             valid = false;
             i.classList.add('is-invalid');
-            if (!first) { 
-                first = i; 
-                msg = 'Phone must be 10 digits'; 
-            }
+            if (!first) { first = i; msg = 'Phone must be 10 digits'; }
         } else if (l === 10) {
-            // Check for duplicates
             if (phoneValues.indexOf(i.value) !== -1) {
                 valid = false;
                 i.classList.add('is-invalid');
-                if (!first) { 
-                    first = i; 
-                    msg = 'Duplicate phone numbers found!'; 
-                }
+                if (!first) { first = i; msg = 'Duplicate phone numbers!'; }
             } else {
                 phoneValues.push(i.value);
                 i.classList.remove('is-invalid');
                 i.classList.add('is-valid');
             }
-        } else {
-            i.classList.remove('is-invalid');
         }
     });
 
@@ -1180,29 +991,13 @@ function validateForm() {
         var ageInput = document.getElementById('minor_update_age');
         var dobInput = document.getElementById('minor_child_dob');
 
-        if (ageInput && dobInput) {
-            var ageValue = ageInput.value.trim();
-
-            if (!ageValue) {
+        if (ageInput && dobInput && ageInput.value) {
+            var age = parseInt(ageInput.value);
+            if (age >= 18) {
                 valid = false;
                 ageInput.classList.add('is-invalid');
                 dobInput.classList.add('is-invalid');
-                if (!first) {
-                    first = dobInput;
-                    msg = 'Invalid age! Person must be under 18 for Minor template.';
-                }
-            } else {
-                var age = parseInt(ageValue);
-                if (age >= 18) {
-                    valid = false;
-                    ageInput.classList.add('is-invalid');
-                    dobInput.classList.add('is-invalid');
-                    if (!first) {
-                        first = dobInput;
-                        msg = 'Person is ' + age + ' years old. Use Major template for adults!';
-                    }
-                    showToast('error', 'Not a Minor!', 'Person is ' + age + ' years old (18+). Cannot use Minor template.');
-                }
+                if (!first) { first = dobInput; msg = 'Person is ' + age + ' years. Use Major template!'; }
             }
         }
     }
@@ -1232,31 +1027,27 @@ function showPreview() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
 
     fetch('/preview', { method: 'POST', body: fd })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
             if (res.success) {
                 previewData = res;
                 displayPreview(res);
                 document.getElementById('processForm').classList.add('d-none');
                 document.getElementById('previewSection').classList.remove('d-none');
                 document.getElementById('previewSection').scrollIntoView({ behavior: 'smooth' });
-                showToast('success', 'Preview', 'Review before generating');
             } else {
                 showToast('error', 'Error', res.message);
             }
         })
-        .catch(function(e) {
+        .catch(function (e) {
             console.error(e);
             showToast('error', 'Error', 'Preview failed');
         })
-        .finally(function() {
+        .finally(function () {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-eye-fill me-2"></i>Preview Before Generating';
+            btn.innerHTML = '<i class="bi bi-eye-fill me-2"></i>Preview Document';
         });
 }
-
-// Fields that should NOT be displayed in preview (internal use only)
-var hiddenPreviewFields = ['HE_SHE', 'WIFE_OF', 'FATHER_NAME'];
 
 function displayPreview(data) {
     var pc = document.getElementById('previewContent');
@@ -1266,20 +1057,13 @@ function displayPreview(data) {
     var orderedKeys = [];
     var witnessFields = ['WITNESS_NAME1', 'WITNESS_PHONE1', 'WITNESS_ADDRESS1', 'WITNESS_NAME2', 'WITNESS_PHONE2', 'WITNESS_ADDRESS2'];
 
-    previewFieldOrder.forEach(function(k) {
-        // Skip hidden fields
+    previewFieldOrder.forEach(function (k) {
         if (hiddenPreviewFields.indexOf(k) !== -1) return;
-        
-        // Skip if empty or just whitespace
-        if (reps[k] && reps[k].trim()) {
-            orderedKeys.push(k);
-        }
+        if (reps[k] && reps[k].trim()) orderedKeys.push(k);
     });
 
-    Object.keys(reps).forEach(function(k) {
-        // Skip hidden fields
+    Object.keys(reps).forEach(function (k) {
         if (hiddenPreviewFields.indexOf(k) !== -1) return;
-        
         if (orderedKeys.indexOf(k) === -1 && reps[k] && reps[k].trim() && witnessFields.indexOf(k) === -1) {
             var insertIndex = orderedKeys.length;
             for (var i = 0; i < orderedKeys.length; i++) {
@@ -1324,7 +1108,7 @@ function toggleEditMode() {
     if (isEditMode) {
         eb.innerHTML = '<i class="bi bi-x-circle me-1"></i>Cancel';
         sb.classList.remove('d-none');
-        vals.forEach(function(v) {
+        vals.forEach(function (v) {
             var f = v.dataset.field;
             if (lockedFields[f]) return;
             var cv = v.textContent;
@@ -1333,7 +1117,7 @@ function toggleEditMode() {
     } else {
         eb.innerHTML = '<i class="bi bi-pencil-square me-1"></i>Edit';
         sb.classList.add('d-none');
-        vals.forEach(function(v) {
+        vals.forEach(function (v) {
             var f = v.dataset.field;
             if (lockedFields[f]) return;
             var inp = v.querySelector('input');
@@ -1346,7 +1130,7 @@ function savePreviewChanges() {
     var vals = document.querySelectorAll('.preview-table .p-val[data-field]');
     var upd = {};
 
-    vals.forEach(function(v) {
+    vals.forEach(function (v) {
         var f = v.dataset.field;
         var inp = v.querySelector('input');
         if (inp) {
@@ -1364,8 +1148,8 @@ function savePreviewChanges() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ replacements: upd })
     })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
             if (res.success) {
                 showToast('success', 'Saved', 'Changes saved');
                 isEditMode = false;
@@ -1374,10 +1158,6 @@ function savePreviewChanges() {
             } else {
                 showToast('error', 'Error', res.message);
             }
-        })
-        .catch(function(e) {
-            console.error(e);
-            showToast('error', 'Error', 'Save failed');
         });
 }
 
@@ -1387,137 +1167,38 @@ function cancelPreview() {
     document.getElementById('processForm').scrollIntoView({ behavior: 'smooth' });
 }
 
-// ==================== GENERATE DOCUMENTS ====================
-function generateDocuments() {
-    var gb = document.getElementById('generateBtn');
-    var sp = document.getElementById('generateSpinner');
-    var ic = document.getElementById('generateIcon');
-
-    gb.disabled = true;
-    sp.classList.remove('d-none');
-    ic.classList.add('d-none');
-
-    fetch('/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-        .then(function(response) {
-            if (response.ok) {
-                // Check if response is a file download
-                var contentType = response.headers.get('content-type');
-                if (contentType && contentType.includes('application/zip')) {
-                    return response.blob().then(function(blob) {
-                        // Create download link
-                        var url = window.URL.createObjectURL(blob);
-                        var a = document.createElement('a');
-                        a.href = url;
-                        
-                        // Get filename from header or use default
-                        var disposition = response.headers.get('content-disposition');
-                        var filename = 'documents.zip';
-                        if (disposition && disposition.indexOf('filename=') !== -1) {
-                            var match = disposition.match(/filename="?([^"]+)"?/);
-                            if (match) filename = match[1];
-                        }
-                        
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                        
-                        showToast('success', 'Downloaded', 'Documents downloaded successfully!');
-                        
-                        // Show success and reset
-                        document.getElementById('previewSection').classList.add('d-none');
-                        document.getElementById('draftSavedSection').classList.remove('d-none');
-                        document.getElementById('draftSavedSection').querySelector('h4').textContent = 'Documents Downloaded!';
-                        document.getElementById('draftSavedSection').querySelector('h4').classList.remove('text-primary');
-                        document.getElementById('draftSavedSection').querySelector('h4').classList.add('text-success');
-                        document.getElementById('draftSavedSection').querySelector('i').classList.remove('bi-journal-check', 'text-primary');
-                        document.getElementById('draftSavedSection').querySelector('i').classList.add('bi-check-circle-fill', 'text-success');
-                        document.getElementById('draftSavedSection').querySelector('p').textContent = 'Your documents have been generated and downloaded.';
-                        
-                        loadPhoneStats();
-                        currentFormPhones = {};
-                    });
-                } else {
-                    return response.json().then(function(data) {
-                        if (!data.success) {
-                            showToast('error', 'Error', data.message || 'Generation failed');
-                        }
-                    });
-                }
-            } else {
-                return response.json().then(function(data) {
-                    showToast('error', 'Error', data.message || 'Generation failed');
-                });
-            }
-        })
-        .catch(function(e) {
-            console.error(e);
-            showToast('error', 'Error', 'Generation failed');
-        })
-        .finally(function() {
-            gb.disabled = false;
-            sp.classList.add('d-none');
-            ic.classList.remove('d-none');
-        });
-}
-
+// ==================== SAVE DRAFT ====================
 function saveDraft() {
     var btn = document.getElementById('draftBtn');
     if (!btn) return;
-    
+
     var originalHtml = btn.innerHTML;
-    
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving...';
-    
-    // Start with the FULL previewData replacements
+
     var replacements = {};
-    
-    if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
+
+    if (previewData && previewData.replacements) {
         for (var key in previewData.replacements) {
-            if (previewData.replacements.hasOwnProperty(key)) {
-                var val = previewData.replacements[key];
-                replacements[key] = (val !== null && val !== undefined) ? val : '';
-            }
+            replacements[key] = previewData.replacements[key] || '';
         }
     }
-    
-    // Override with any edited values from the preview table
-    var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
-    previewCells.forEach(function(cell) {
+
+    // Get edited values from preview table
+    document.querySelectorAll('.preview-table .p-val[data-field]').forEach(function (cell) {
         var field = cell.dataset.field;
         if (field) {
-            var value = cell.textContent ? cell.textContent.trim() : '';
-            replacements[field] = value;
+            replacements[field] = cell.textContent.trim();
         }
     });
-    
+
     if (Object.keys(replacements).length === 0) {
-        showToast('error', 'Error', 'No data to save. Please fill out the form first.');
+        showToast('error', 'Error', 'No data to save');
         btn.disabled = false;
         btn.innerHTML = originalHtml;
         return;
     }
-    
-    // ✅ FIX: Collect phones used in this form
-    var phonesUsed = [];
-    var phoneFields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2'];
-    phoneFields.forEach(function(field) {
-        var phone = replacements[field];
-        if (phone && phone.length === 10) {
-            phonesUsed.push(phone);
-        }
-    });
-    
-    // Also add from currentFormPhones tracking
-    Object.keys(currentFormPhones).forEach(function(key) {
-        var phone = currentFormPhones[key];
-        if (phone && phone.length === 10 && phonesUsed.indexOf(phone) === -1) {
-            phonesUsed.push(phone);
-        }
-    });
-    
+
     var draftData = {
         template_type: selectedTemplate,
         folder_type: currentFolderType,
@@ -1525,118 +1206,71 @@ function saveDraft() {
         preview_data: {
             template_type: selectedTemplate,
             folder_type: currentFolderType,
-            replacements: replacements,
-            phones_used: phonesUsed  // ✅ Include phones used
+            replacements: replacements
         },
         status: 'draft'
     };
-    
-    if (!draftData.template_type) {
-        showToast('error', 'Error', 'No template selected');
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        return;
-    }
-    
+
     fetch('/api/drafts/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draftData)
     })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.success) {
-            document.getElementById('previewSection').classList.add('d-none');
-            
-            var draftSavedSection = document.getElementById('draftSavedSection');
-            if (draftSavedSection) {
-                draftSavedSection.querySelector('h4').textContent = 'Draft Saved!';
-                draftSavedSection.querySelector('i').className = 'bi bi-journal-check';
-                draftSavedSection.querySelector('p').textContent = 'Your document has been saved as a draft. You can continue editing it later from the dashboard.';
-                draftSavedSection.classList.remove('d-none');
-                draftSavedSection.scrollIntoView({ behavior: 'smooth' });
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.success) {
+                document.getElementById('previewSection').classList.add('d-none');
+
+                var draftSavedSection = document.getElementById('draftSavedSection');
+                if (draftSavedSection) {
+                    draftSavedSection.classList.remove('d-none');
+                    draftSavedSection.scrollIntoView({ behavior: 'smooth' });
+                }
+
+                showToast('success', 'Draft Saved', 'Phones marked as used: ' + (data.phones_marked || 0));
+                currentFormPhones = {};
+                loadPhoneStats();
+            } else {
+                showToast('error', 'Error', data.message || 'Failed to save draft');
             }
-            
-            // ✅ Log phones marked
-            if (data.phones_marked) {
-                console.log('Phones marked as used:', data.phones_marked);
-            }
-            
-            showToast('success', 'Draft Saved', 'Your document has been saved successfully!');
-            
-            clearSessionPhones();
-            currentFormPhones = {};
-        } else {
-            showToast('error', 'Error', data.message || 'Failed to save draft');
-        }
-    })
-    .catch(function(e) {
-        console.error('Error saving draft:', e);
-        showToast('error', 'Error', 'Failed to save draft. Please try again.');
-    })
-    .finally(function() {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-    });
+        })
+        .catch(function (e) {
+            console.error('Error saving draft:', e);
+            showToast('error', 'Error', 'Failed to save draft');
+        })
+        .finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        });
 }
 
 function submitForApproval() {
     var btn = document.getElementById('submitApprovalBtn');
     if (!btn) return;
-    
+
     var originalHtml = btn.innerHTML;
     var spinner = document.getElementById('submitSpinner');
     var icon = document.getElementById('submitIcon');
-    
+
     btn.disabled = true;
     if (spinner) spinner.classList.remove('d-none');
     if (icon) icon.classList.add('d-none');
-    
+
     var replacements = {};
-    
-    if (typeof previewData !== 'undefined' && previewData && previewData.replacements) {
+
+    if (previewData && previewData.replacements) {
         for (var key in previewData.replacements) {
-            if (previewData.replacements.hasOwnProperty(key)) {
-                var val = previewData.replacements[key];
-                replacements[key] = (val !== null && val !== undefined) ? val : '';
-            }
+            replacements[key] = previewData.replacements[key] || '';
         }
     }
-    
-    var previewCells = document.querySelectorAll('.preview-table .p-val[data-field]');
-    previewCells.forEach(function(cell) {
+
+    document.querySelectorAll('.preview-table .p-val[data-field]').forEach(function (cell) {
         var field = cell.dataset.field;
         if (field) {
-            var value = cell.textContent ? cell.textContent.trim() : '';
-            replacements[field] = value;
+            replacements[field] = cell.textContent.trim();
         }
     });
-    
-    if (Object.keys(replacements).length === 0) {
-        showToast('error', 'Error', 'No data to submit. Please fill out the form first.');
-        btn.disabled = false;
-        if (spinner) spinner.classList.add('d-none');
-        if (icon) icon.classList.remove('d-none');
-        return;
-    }
-    
-    // ✅ FIX: Collect phones used in this form
-    var phonesUsed = [];
-    var phoneFields = ['PHONE_UPDATE', 'WITNESS_PHONE1', 'WITNESS_PHONE2'];
-    phoneFields.forEach(function(field) {
-        var phone = replacements[field];
-        if (phone && phone.length === 10) {
-            phonesUsed.push(phone);
-        }
-    });
-    
-    Object.keys(currentFormPhones).forEach(function(key) {
-        var phone = currentFormPhones[key];
-        if (phone && phone.length === 10 && phonesUsed.indexOf(phone) === -1) {
-            phonesUsed.push(phone);
-        }
-    });
-    
+
     var draftData = {
         template_type: selectedTemplate,
         folder_type: currentFolderType,
@@ -1644,63 +1278,53 @@ function submitForApproval() {
         preview_data: {
             template_type: selectedTemplate,
             folder_type: currentFolderType,
-            replacements: replacements,
-            phones_used: phonesUsed  // ✅ Include phones used
+            replacements: replacements
         },
         status: 'draft'
     };
-    
-    if (!draftData.template_type) {
-        showToast('error', 'Error', 'No template selected');
-        btn.disabled = false;
-        if (spinner) spinner.classList.add('d-none');
-        if (icon) icon.classList.remove('d-none');
-        return;
-    }
-    
+
     fetch('/api/drafts/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draftData)
     })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.success && data.draft_id) {
-            return fetch('/api/drafts/' + data.draft_id + '/submit-approval', {
-                method: 'POST'
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(approvalData) {
-                if (approvalData.success) {
-                    document.getElementById('previewSection').classList.add('d-none');
-                    
-                    var submittedSection = document.getElementById('submittedSection');
-                    if (submittedSection) {
-                        submittedSection.classList.remove('d-none');
-                        submittedSection.scrollIntoView({ behavior: 'smooth' });
-                    }
-                    
-                    showToast('success', 'Submitted', 'Document submitted for admin approval!');
-                    
-                    clearSessionPhones();
-                    currentFormPhones = {};
-                } else {
-                    showToast('error', 'Error', approvalData.message || 'Failed to submit for approval');
-                }
-            });
-        } else {
-            showToast('error', 'Error', data.message || 'Failed to save document');
-        }
-    })
-    .catch(function(e) {
-        console.error('Error submitting for approval:', e);
-        showToast('error', 'Error', 'Failed to submit. Please try again.');
-    })
-    .finally(function() {
-        btn.disabled = false;
-        if (spinner) spinner.classList.add('d-none');
-        if (icon) icon.classList.remove('d-none');
-    });
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.success && data.draft_id) {
+                return fetch('/api/drafts/' + data.draft_id + '/submit-approval', {
+                    method: 'POST'
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (approvalData) {
+                        if (approvalData.success) {
+                            document.getElementById('previewSection').classList.add('d-none');
+
+                            var submittedSection = document.getElementById('submittedSection');
+                            if (submittedSection) {
+                                submittedSection.classList.remove('d-none');
+                                submittedSection.scrollIntoView({ behavior: 'smooth' });
+                            }
+
+                            showToast('success', 'Submitted', 'Document submitted for approval!');
+                            currentFormPhones = {};
+                            loadPhoneStats();
+                        } else {
+                            showToast('error', 'Error', approvalData.message);
+                        }
+                    });
+            } else {
+                showToast('error', 'Error', data.message);
+            }
+        })
+        .catch(function (e) {
+            console.error('Error:', e);
+            showToast('error', 'Error', 'Failed to submit');
+        })
+        .finally(function () {
+            btn.disabled = false;
+            if (spinner) spinner.classList.add('d-none');
+            if (icon) icon.classList.remove('d-none');
+        });
 }
 
 // ==================== RESET FORM ====================
@@ -1708,23 +1332,11 @@ function resetForm() {
     var form = document.getElementById('processForm');
     form.reset();
 
-    form.querySelectorAll('.is-invalid,.is-valid').forEach(function(e) {
+    form.querySelectorAll('.is-invalid,.is-valid').forEach(function (e) {
         e.classList.remove('is-invalid', 'is-valid');
     });
 
-    document.querySelectorAll('.digit-counter').forEach(function(c) {
-        c.textContent = '0/10 digits';
-        c.classList.remove('warning', 'error', 'success');
-    });
-
-    document.querySelectorAll('.phone-auto-indicator').forEach(function(i) {
-        i.classList.add('d-none');
-    });
-
-    document.querySelectorAll('.phone-input').forEach(function(i) {
-        i.dataset.autoFilled = '';
-    });
-
+    clearAllPhoneInputs();
     clearAliases('major');
     clearAliases('minor');
     clearAliases('religion');
@@ -1732,23 +1344,17 @@ function resetForm() {
     form.classList.remove('d-none');
     document.getElementById('previewSection').classList.add('d-none');
     document.getElementById('draftSavedSection').classList.add('d-none');
-    
+
     var submittedSection = document.getElementById('submittedSection');
-    if (submittedSection) {
-        submittedSection.classList.add('d-none');
-    }
-    
+    if (submittedSection) submittedSection.classList.add('d-none');
+
     document.getElementById('templateFilesInfo').classList.remove('d-none');
 
-    // ✅ FIX: Clear phone tracking properly
     currentFormPhones = {};
-    clearSessionPhones(); // Clear backend session too
 
     if (selectedTemplate) {
         fetchTemplateFiles(selectedTemplate);
-        setTimeout(function() {
-            autoFillAllPhones();
-        }, 500); // ✅ Increased delay
+        setTimeout(autoFillAllPhones, 300);
     }
 
     document.querySelector('.template-selector-card').scrollIntoView({ behavior: 'smooth' });
@@ -1762,13 +1368,13 @@ function showToast(type, title, msg) {
     var tb = document.getElementById('toastBody');
 
     ti.className = 'bi me-2';
-    var im = {
+    var icons = {
         'success': 'bi-check-circle-fill text-success',
         'warning': 'bi-exclamation-triangle-fill text-warning',
         'info': 'bi-info-circle-fill text-info',
         'error': 'bi-exclamation-triangle-fill text-danger'
     };
-    (im[type] || im['error']).split(' ').forEach(function(c) {
+    (icons[type] || icons['error']).split(' ').forEach(function (c) {
         ti.classList.add(c);
     });
     tt.textContent = title;
@@ -1783,24 +1389,17 @@ function initializeEventListeners() {
     setupSonDaughterAutoGender();
     setupPhoneValidation();
     setupRelationAutoGender();
-    setupPhoneManualEdit();
     setupDOBAutoAge();
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Date picker change handler
+document.addEventListener('DOMContentLoaded', function () {
     var datePicker = document.getElementById('num_date_picker');
     if (datePicker) {
         datePicker.addEventListener('change', updateNumDate);
     }
 
-    // Initialize all event listeners
     initializeEventListeners();
-
-    // Load phone stats
     loadPhoneStats();
-
-    // Update time
     updateTime();
     setInterval(updateTime, 60000);
 });
